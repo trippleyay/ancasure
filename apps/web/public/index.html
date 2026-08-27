@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>AncaSure — Sandwich Insurance MVP</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
+  <style>
+    body { font-family: monospace; max-width: 860px; margin: 2rem auto; background: #111; color: #ddd; }
+    section { border: 1px solid #333; padding: 1rem; margin-bottom: 1rem; }
+    button { margin: .25rem .5rem .25rem 0; padding: .4rem .8rem; }
+    pre { background: #000; padding: .6rem; overflow-x: auto; font-size: .75rem; }
+    input { width: 100%; box-sizing: border-box; background:#000;color:#ddd;border:1px solid #444;padding:.3rem;}
+    h3 { color: #9cf; margin: 0 0 .5rem; }
+    a { color: #7bf; }
+    .ok { color: #7d7 } .bad { color: #d77 }
+  </style>
+</head>
+<body>
+<h1>AncaSure</h1>
+<p>Decentralized insurance for sandwich-attack victims. payout = min(70% × verifiedLoss, cap)</p>
+
+<section>
+  <h3>1 · Connect wallet (judge)</h3>
+  <button id="connect">Connect MetaMask</button>
+  <span id="wallet"></span>
+</section>
+
+<section>
+  <h3>2 · Register protection (cap = default policy cap)</h3>
+  <button id="register">registerProtection()</button>
+  <pre id="regOut">Requires claims contract deployed & address configured in API /run-latest or env.</pre>
+</section>
+
+<section>
+  <h3>3 · Protected swap → controlled sandwich</h3>
+  <button id="swapreq">Get swap request</button>
+  <button id="execute">Sign &amp; execute sandwich around it</button>
+  <a id="etherscanVictim" target="_blank" hidden>victim ↗</a>
+  <pre id="swapOut"></pre>
+</section>
+
+<section>
+  <h3>4–6 · Detect / Verify / Claim</h3>
+  <input id="victimHash" placeholder="victim tx hash (auto-filled after sandwich)" />
+  <button id="detect">POST /detect</button>
+  <button id="simulate">POST /simulate</button>
+  <button id="claim">POST /claim</button>
+  <pre id="flowOut">Steps run server-side (detector + simulator + Creditcoin proofs).</pre>
+</section>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+let provider, signer, account;
+let pendingSwap = null;
+
+async function api(path, body) {
+  const r = await fetch("http://localhost:3000" + path, {
+    method: body ? "POST" : "GET",
+    headers: { "content-type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const j = await r.json();
+  if (!r.ok && !j.classification) throw new Error(j.error ?? JSON.stringify(j));
+  return j;
+}
+
+$("connect").onclick = async () => {
+  provider = new ethers.BrowserProvider(window.ethereum);
+  await provider.send("eth_requestAccounts", []);
+  signer = await provider.getSigner();
+  account = await signer.getAddress();
+  $("wallet").textContent = "connected: " + account;
+};
+
+$("register").onclick = async () => {
+  try {
+    if (!signer) throw new Error("connect first");
+    // Default cap from shared config; replace with deployed address after
+    // `npm run deploy:sepolia` in contracts/claims. Minimal by design.
+    const cfg = await api("/health");
+    console.log(cfg);
+    $("regOut").textContent =
+      "Set CLAIMS_CONTRACT_ADDRESS in API env to enable direct registration. " +
+      "CLI alternative: cast send $CLAIMS 'registerProtection(uint256)' $(cast to-wei 0.05)";
+  } catch (e) { $("regOut").textContent = String(e); }
+};
+
+$("swapreq").onclick = async () => {
+  try {
+    if (!account) throw new Error("connect first");
+    pendingSwap = await api("/swap-request", { judgeAddress: account });
+    $("swapOut").textContent = JSON.stringify(pendingSwap, null, 2);
+  } catch (e) { $("swapOut").textContent = String(e.message ?? e); }
+};
+
+// Execute-sandwich signs via eth_signTransaction (raw bytes), then the backend
+// fires front/victim/back at next block open — identical mechanics to the
+// validated golden run.
+$("execute").onclick = async () => {
+  try {
+    if (!pendingSwap || !provider) throw new Error("get swap request + connect first");
+    const raw = await window.ethereum.request({
+      method: "eth_signTransaction",
+      params: [{
+        from: account,
+        to: pendingSwap.to,
+        value: "0x" + BigInt(pendingSwap.valueWei).toString(16),
+        data: pendingSwap.data,
+        gas: "0x55730",
+        maxPriorityFeePerGas: "0x" + ethers.parseUnits(pendingSwap.suggestedTipGwei, "gwei").toString(16),
+        type: "0x2",
+      }],
+    });
+    $("swapOut").textContent = "broadcasting controlled trio (front/victim/back)...";
+    const out = await api("/execute-sandwich", { signedVictimRawTx: raw });
+    $("swapOut").textContent = JSON.stringify(out, null, 2);
+    if (out.ok) {
+      $("victimHash").value = out.victimHash;
+      const link = $("etherscanVictim");
+      link.href = "https://sepolia.etherscan.io/tx/" + out.victimHash;
+      link.hidden = false;
+      link.textContent = "victim tx ↗";
+    }
+  } catch (e) { $("swapOut").textContent = String(e.message ?? e); }
+};
+
+$("detect").onclick = async () => {
+  try {
+    const r = await api("/detect", { victimTxHash: $("victimHash").value.trim() });
+    $("flowOut").className = "";
+    $("flowOut").textContent = JSON.stringify(r.result, null, 2);
+  } catch (e) { $("flowOut").textContent = String(e.message ?? e); }
+};
+
+$("simulate").onclick = async () => {
+  try {
+    const r = await api("/simulate", { victimTxHash: $("victimHash").value.trim() });
+    $("flowOut").className = "";
+    $("flowOut").textContent = JSON.stringify(r.report, null, 2);
+  } catch (e) { $("flowOut").textContent = String(e.message ?? e); }
+};
+
+$("claim").onclick = async () => {
+  try {
+    const r = await api("/claim", { victimTxHash: $("victimHash").value.trim() });
+    const el = $("flowOut");
+    el.className = r.eligible ? "ok" : "bad";
+    el.textContent = JSON.stringify(r, null, 2);
+  } catch (e) { $("flowOut").textContent = String(e.message ?? e); }
+};
+</script>
+</body>
+</html>

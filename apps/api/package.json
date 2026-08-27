@@ -1,0 +1,24 @@
+{
+  "name": "@ancsure/api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AncaSure backend API",
+  "license": "MIT",
+  "type": "commonjs",
+  "main": "./src/index.ts",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ancsure/shared": "*",
+    "@ancsure/ethereum": "*",
+    "@ancsure/detector": "*",
+    "@ancsure/simulator": "*",
+    "@ancsure/creditcoin": "*",
+    "ethers": "^6.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0"
+  }
+}

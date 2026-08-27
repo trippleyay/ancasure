@@ -1,0 +1,41 @@
+{
+  "name": "ancasure",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AncaSure — decentralized insurance protocol compensating DEX traders for verified sandwich-attack losses. Settled via Creditcoin/Attestcoin.",
+  "license": "MIT",
+  "type": "commonjs",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "contracts/claims"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit && npm run typecheck --workspaces --if-present",
+    "test": "vitest run",
+    "test:detector": "vitest run packages/detector",
+    "test:simulator": "vitest run packages/simulator",
+    "test:creditcoin": "vitest run packages/creditcoin",
+    "test:contracts": "npm run test --workspace @ancsure/claims-contracts",
+    "contracts:compile": "npm run compile --workspace @ancsure/claims-contracts",
+    "contracts:deploy:sepolia": "npm run deploy:sepolia --workspace @ancsure/claims-contracts",
+    "detect": "tsx packages/detector/src/cli/detect-cli.ts",
+    "simulate": "tsx packages/simulator/src/cli/simulate-cli.ts",
+    "dev:api": "tsx apps/api/src/index.ts",
+    "dev:web": "npx --yes serve -l 5173 apps/web/public",
+    "demo:deploy-token": "tsx demo/token/deploy-token.ts",
+    "demo:setup-pool": "tsx demo/pool/setup-pool.ts",
+    "demo:reset-pool": "tsx demo/pool/reset-pool.ts",
+    "demo:sandwich": "tsx demo/sandwich/run-sandwich.ts"
+  },
+  "dependencies": {
+    "@gluwa/usc-sdk": "^0.18.0",
+    "ethers": "^6.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.8"
+  }
+}

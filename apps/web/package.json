@@ -1,0 +1,10 @@
+{
+  "name": "@ancsure/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AncaSure minimal judge-facing frontend (static, no build step)",
+  "license": "MIT",
+  "scripts": {
+    "start": "npx --yes serve -l 5173 public"
+  }
+}

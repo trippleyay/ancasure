@@ -1,0 +1,20 @@
+{
+  "name": "ancasure-golden-sepolia-sandwich",
+  "description": "Regression fixture: first fully successful controlled Sepolia sandwich (real user-controlled deterministic victim). Used ONLY by tests/regression — never executed as part of the live demo.",
+  "capturedAt": "2026-08-27",
+  "sourceRepo": "MEVdetector (pre-AncaSure validation)",
+  "chain": "ethereum-sepolia",
+  "mevTestToken": "0x0BFEEaeA054068F6befcF03d9C09D416788c49D1",
+  "pair": "0x0fC13e7D6111f5128579A83028d98505913192c5",
+  "canonicalReserves": { "wethRaw": "30000000000000000", "mevTestRaw": "40000000000000000000000" },
+  "expectedBlockOrdering": { "block": 11577375, "indices": [0, 1, 2] },
+  "transactions": {
+    "frontRun": "0x1e9bc776ff62bdbccb43779a58c4f631cd3302c4679964abb07f54d9111545bd",
+    "victim": "0x89c9625358b4f62426ff4b3b98968c377c5b2ee81c85e1562f9e2d58862118a0",
+    "backRun": "0xcf2e1300d0a03e6e04e72a8cac1511cc159c3e5b4c1523cc260a1ca2fda4078e"
+  },
+  "expectedResults": {
+    "classification": "SANDWICH",
+    "simulation": { "exactMatch": true }
+  }
+}

@@ -1,0 +1,31 @@
+# dependencies / builds
+node_modules/
+dist/
+build/
+out/
+coverage/
+cache/
+artifacts-forge/
+
+# secrets — NEVER commit real values
+.env
+.env.*
+!.env.example
+*.secret
+*private-key*
+!**/private-key-detector.test.ts
+
+# hardhat / chain artifacts
+contracts/claims/cache/
+contracts/claims/artifacts/
+contracts/claims/typechain-types/
+contracts/claims/deployments/local*
+
+# demo runtime state (tx hashes are fine to keep; never keys)
+data/sandwich-demo/
+
+# misc
+.DS_Store
+*.log
+.vscode/
+.idea/

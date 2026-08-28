@@ -4,6 +4,8 @@
   <meta charset="utf-8" />
   <title>AncaSure — Sandwich Insurance MVP</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
+  <!-- WalletConnect v2 (UMD). Judges on any wallet scan the QR; no extension needed. -->
+  <script src="https://unpkg.com/@walletconnect/ethereum-provider@2.17.2/dist/index.umd.js"></script>
   <style>
     body { font-family: monospace; max-width: 860px; margin: 2rem auto; background: #111; color: #ddd; }
     section { border: 1px solid #333; padding: 1rem; margin-bottom: 1rem; }
@@ -52,6 +54,8 @@
 const $ = (id) => document.getElementById(id);
 let provider, signer, account;
 let pendingSwap = null;
+let wcProjectId = "";
+const SEPOLIA_CHAIN_ID = 11155111;
 
 async function api(path, body) {
   const r = await fetch("http://localhost:3000" + path, {
@@ -64,13 +68,40 @@ async function api(path, body) {
   return j;
 }
 
-$("connect").onclick = async () => {
-  provider = new ethers.BrowserProvider(window.ethereum);
-  await provider.send("eth_requestAccounts", []);
+// Fetch the public WalletConnect project id from the API (not a secret).
+api("/health").then((h) => { wcProjectId = h.wcProjectId ?? ""; }).catch(() => {});
+
+async function connectWallet() {
+  // 1) Browser extension (MetaMask etc.) if present — instant, no QR.
+  if (window.ethereum) {
+    provider = new ethers.BrowserProvider(window.ethereum);
+    await provider.send("eth_requestAccounts", []);
+    signer = await provider.getSigner();
+    account = await signer.getAddress();
+    $("wallet").textContent = "connected (injected): " + account;
+    return;
+  }
+  // 2) WalletConnect — any mobile/desktop wallet via QR. Requires the API's
+  //    WALLETCONNECT_PROJECT_ID (free: cloud.walletconnect.com).
+  // The UMD bundle registers as window["@walletconnect/ethereum-provider"].
+  const WCPkg = window["@walletconnect/ethereum-provider"] ?? window.WalletConnectEthereumProvider;
+  if (!WCPkg) throw new Error("WalletConnect library failed to load");
+  const WCProvider = WCPkg.EthereumProvider ?? WCPkg;
+  if (!wcProjectId) throw new Error("WalletConnect not configured: set WALLETCONNECT_PROJECT_ID in API .env");
+  const wc = await WCProvider.init({
+    projectId: wcProjectId,
+    chains: [SEPOLIA_CHAIN_ID],
+    rpcMap: { [SEPOLIA_CHAIN_ID]: "https://rpc.sepolia.org" },
+    showQrModal: true,
+    metadata: { name: "AncaSure", description: "Sandwich-attack insurance demo", url: "https://ancasure.demo", icons: [] },
+  });
+  provider = new ethers.BrowserProvider(wc, undefined, { staticNetwork: new ethers.Network("sepolia", SEPOLIA_CHAIN_ID) });
   signer = await provider.getSigner();
   account = await signer.getAddress();
-  $("wallet").textContent = "connected: " + account;
-};
+  $("wallet").textContent = "connected (WalletConnect): " + account;
+}
+
+$("connect").onclick = () => connectWallet().catch((e) => { $("wallet").textContent = "connect failed: " + (e.message ?? e); });
 
 $("register").onclick = async () => {
   try {
@@ -93,15 +124,16 @@ $("swapreq").onclick = async () => {
   } catch (e) { $("swapOut").textContent = String(e.message ?? e); }
 };
 
-// Execute-sandwich signs via eth_signTransaction (raw bytes), then the backend
-// fires front/victim/back at next block open — identical mechanics to the
-// validated golden run.
+// Execute-sandwich signs via eth_signTransaction through the connected wallet
+// (injected OR WalletConnect — both speak EIP-1193), then the backend fires
+// front/victim/back at next block open — identical mechanics to the validated
+// golden run. Judge latency is absorbed: signing happens entirely in the
+// browser BEFORE /execute-sandwich is called.
 $("execute").onclick = async () => {
   try {
     if (!pendingSwap || !provider) throw new Error("get swap request + connect first");
-    const raw = await window.ethereum.request({
-      method: "eth_signTransaction",
-      params: [{
+    $("swapOut").textContent = "waiting for wallet signature… (sign within ~90s — the swap has a 2-minute deadline)";
+    const raw = await provider.send("eth_signTransaction", [{
         from: account,
         to: pendingSwap.to,
         value: "0x" + BigInt(pendingSwap.valueWei).toString(16),
@@ -109,8 +141,7 @@ $("execute").onclick = async () => {
         gas: "0x55730",
         maxPriorityFeePerGas: "0x" + ethers.parseUnits(pendingSwap.suggestedTipGwei, "gwei").toString(16),
         type: "0x2",
-      }],
-    });
+    }]);
     $("swapOut").textContent = "broadcasting controlled trio (front/victim/back)...";
     const out = await api("/execute-sandwich", { signedVictimRawTx: raw });
     $("swapOut").textContent = JSON.stringify(out, null, 2);

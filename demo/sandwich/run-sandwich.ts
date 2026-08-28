@@ -1,4 +1,4 @@
-/**
+what /**
  * Step 3 — execute the controlled sandwich and verify ordering.
  *
  *   npx tsx scripts/sandwich-demo/run-sandwich.ts
@@ -19,7 +19,7 @@ import { ethers } from "ethers";
 import {
   getProvider,
   getMasterWallet,
-  deriveChildKey,
+  getVictimWallet,
   loadArtifacts,
   saveArtifacts,
   retry,
@@ -28,8 +28,9 @@ import {
   ROUTER_ABI,
   PAIR_ABI,
   ROUTER,
-  FRONT_WETH,
-  VICTIM_WETH,
+  computeAttackSizes,
+  getSizingProfile,
+  VICTIM_GAS_HEADROOM,
   v2GetAmountOut,
 } from "../lib";
 
@@ -58,7 +59,7 @@ interface Outcome {
 export async function main(): Promise<void> {
   const provider = getProvider();
   const attacker = getMasterWallet(provider); // front+back sender (R2: same `from`)
-  const victim = new ethers.Wallet(deriveChildKey("mev-shield-victim"), provider);
+  const victim = getVictimWallet(provider); // judge's wallet if VICTIM_PRIVATE_KEY is set, else derived dev-victim
   const art = loadArtifacts();
   if (!art.pair || !art.mevTestToken) throw new Error("Run setup-pool.ts first");
 
@@ -73,27 +74,54 @@ export async function main(): Promise<void> {
   let outcome: Outcome | null = null;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS && !outcome?.ok; attempt++) {
-    // ---- Plan amounts from live pool state ----------------------------------
+    // ---- Plan amounts from live pool state (retry-wrapped; Alchemy is flaky) --
     const deadline = Math.floor(Date.now() / 1000) + 120;
-    const [r0, r1] = await pairC.getReserves();
-    const wethIs0 = String(await pairC.token0()).toLowerCase() === WETH.toLowerCase();
+    const [r0, r1] = await retry("getReserves", () => pairC.getReserves());
+    const wethIs0 = String(await retry("token0", () => pairC.token0())).toLowerCase() === WETH.toLowerCase();
     const rin = wethIs0 ? r0 : r1;   // WETH reserve
     const rout = wethIs0 ? r1 : r0;  // MEVTEST reserve
+
+    // Dynamic sizing: fractions of the LIVE reserve (see lib.ts SANDWICH_PROFILE).
+    const profile = getSizingProfile();
+    let { front: FRONT_WETH, victim: VICTIM_WETH } = computeAttackSizes(rin, profile);
+
+    // Balance guard: attacker must cover front-run + victim funding + gas for 2 txs.
+    const attEth = await retry("attackerBalance", () => provider.getBalance(attacker.address));
+    const needed = FRONT_WETH + VICTIM_WETH + VICTIM_GAS_HEADROOM + ethers.parseEther("0.002");
+    if (attEth < needed) {
+      const scale = (attEth - ethers.parseEther("0.005")) * 10000n / (needed - ethers.parseEther("0.005"));
+      console.log(`[attempt ${attempt}] balance ${ethers.formatEther(attEth)} ETH below needed ${ethers.formatEther(needed)} — scaling sizes to ${Number(scale) / 100}%`);
+      if (scale <= 0n) { outcome = { ok: false, reason: "insufficient attacker ETH" }; continue; }
+      FRONT_WETH = FRONT_WETH * scale / 10000n;
+      VICTIM_WETH = VICTIM_WETH * scale / 10000n;
+    }
+
+    // Fund the victim idempotently: only top up to (trade size + gas headroom).
+    const vicBal = await retry("victimBalance", () => provider.getBalance(victim.address));
+    const vicNeed = VICTIM_WETH + VICTIM_GAS_HEADROOM;
+    if (vicBal < vicNeed) {
+      const topUp = vicNeed - vicBal;
+      console.log(`[attempt ${attempt}] funding victim ${ethers.formatEther(topUp)} ETH (has ${ethers.formatEther(vicBal)})`);
+      const fundTx = await retry("fundVictim", () =>
+        attacker.sendTransaction({ to: victim.address, value: topUp, gasLimit: 21_000n, type: 2, maxFeePerGas: ethers.parseUnits("50", "gwei"), maxPriorityFeePerGas: ethers.parseUnits("0.1", "gwei") }));
+      const fr = await retry("fundReceipt", () => provider.waitForTransaction(fundTx.hash, 1, 90_000));
+      if (!fr || fr.status !== 1) { outcome = { ok: false, reason: "victim funding failed" }; continue; }
+    }
 
     const frontOut = v2GetAmountOut(FRONT_WETH, rin, rout);
     const cfOut = v2GetAmountOut(VICTIM_WETH, rin, rout);            // counterfactual
     const vicOut = v2GetAmountOut(VICTIM_WETH, rin + FRONT_WETH, rout - frontOut);
     const predLossBps = ((cfOut - vicOut) * 10000n) / cfOut;
     console.log(
-      `\n[attempt ${attempt}] pool=${ethers.formatEther(rin)} WETH | victimOut≈${ethers.formatEther(vicOut)} vs CF≈${ethers.formatEther(cfOut)} MEVTEST -> predicted loss ${(Number(predLossBps) / 100).toFixed(2)}%`,
+      `\n[attempt ${attempt}] profile=${profile} pool=${ethers.formatEther(rin)} WETH | front=${ethers.formatEther(FRONT_WETH)} victim=${ethers.formatEther(VICTIM_WETH)} | victimOut≈${ethers.formatEther(vicOut)} vs CF≈${ethers.formatEther(cfOut)} MEVTEST -> predicted loss ${(Number(predLossBps) / 100).toFixed(2)}%`,
     );
-    if (predLossBps < 100n || predLossBps > 1200n) {
-      console.log("[attempt] predicted loss outside 1-12% band — aborting (do not drain wallet)");
+    if (predLossBps < 50n || predLossBps > 8500n) {
+      console.log("[attempt] predicted loss outside 0.5-85% band — aborting (do not drain wallet)");
       return;
     }
 
     // Back-run sells existing dust + exact predicted front-run proceeds (-0.05%).
-    const dustBal = await mevAttacker.balanceOf(attacker.address);
+    const dustBal = await retry("mevtestBalance", () => mevAttacker.balanceOf(attacker.address));
     const backSellAmount = ((dustBal + frontOut) * 9995n) / 10000n;
 
     const latestBlock = await retry("getBlock", () => provider.getBlock("latest"));

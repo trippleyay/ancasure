@@ -4,11 +4,32 @@ All commands run from the repository root after `npm install && cp .env.example 
 
 ## One-time environment
 
+The MEVTEST token and its WETH/MEVTEST pair were **already deployed and
+golden-validated** — there is no need (and no reason) to deploy a new token.
+Seed the local artifact registry offline (no gas, no RPC):
+
 ```bash
-npx tsx demo/token/deploy-token.ts     # deploys MEVTEST ERC-20, writes artifacts
-npx tsx demo/pool/setup-pool.ts        # official-factory WETH/MEVTEST pair + liquidity
-# pool drift between demos? canonical reset (donate deltas + sync):
-npx tsx demo/pool/reset-pool.ts
+npx tsx scripts/seed-artifacts.ts       # writes data/demo/artifacts.json from the proven addresses
+```
+
+Only if the pool has drifted from its canonical state (0.03 WETH / 40,000
+MEVTEST) or liquidity was never seeded on this chain state, canonicalize it:
+
+```bash
+npx tsx demo/pool/reset-pool.ts         # donate deltas + sync → canonical reserves
+```
+
+> **Pool-drift note:** the V2 `K` invariant is monotonic — a pool that once held
+> more MEVTEST can never shrink below `K / 0.03 WETH` on the token side. When
+> that floor sits above 40,000 MEVTEST the script pulls out everything K allows
+> and reports the residual drift as a WARNING. This is harmless: the WETH side
+> (the one that determines the victim's loss % and the attacker's profit) is
+> restored exactly to canonical, and every demo/simulator step reads **live**
+> reserves, never the canonical constants.
+
+(For a brand-new chain/environment only: `demo/token/deploy-token.ts` and
+`demo/pool/setup-pool.ts` remain available, but they are NOT part of the normal
+demo path.)
 ```
 
 Artifacts (addresses, hashes — no secrets) land in `data/demo/artifacts.json`.
@@ -35,6 +56,68 @@ npx tsx demo/sandwich/run-sandwich.ts            # golden-mechanics sandwich
 npm run detect -- 0x<VICTIM_HASH>
 npm run simulate -- 0x<VICTIM_HASH>
 ```
+
+### Reliability & sizing
+
+The sandwich is designed for **unattended, repeatable runs** (click → attack →
+output):
+
+* every pre-flight RPC call (reserves, balances, funding) is retry-wrapped for
+  transient Alchemy timeouts;
+* attack sizes are computed from the **live** reserves each run — the demo never
+  decays as the pool grows and can be repeated indefinitely;
+* the victim wallet is topped up idempotently (only to trade size + gas
+  headroom; unused headroom carries over to the next run);
+* attacker sizes are scaled down automatically if the wallet balance is short.
+
+Severity is tunable via `SANDWICH_PROFILE` (exact V2 math, per-run cost ≈
+front + victim + gas):
+
+| profile    | front/victim (of live reserve) | victim loss | cost/run  |
+|------------|-------------------------------|-------------|-----------|
+| `gentle`   | 10% / 20%                     | ~16%        | ~0.013 ETH |
+| `moderate` | 30% / 60% (default)           | ~35%        | ~0.032 ETH |
+| `brutal`   | 100% / 100%                   | ~67%        | ~0.067 ETH |
+
+e.g. `SANDWICH_PROFILE=brutal npx tsx demo/sandwich/run-sandwich.ts`
+
+### Using a judge's own wallet as the victim
+
+Set `VICTIM_PRIVATE_KEY` in `.env` (or the environment) and the sandwich uses
+that wallet as the victim instead of the derived dev-victim:
+
+```bash
+VICTIM_PRIVATE_KEY=0x<judge-test-key> npm run demo:sandwich
+```
+
+Notes:
+
+* the script only ever **tops up** the victim wallet (trade size + gas
+  headroom) — it never moves funds out of it;
+* the key is read from the environment, never logged, and never written to
+  `data/demo/artifacts.json` (which records only the victim *address* and the
+  victim tx hash);
+* use a throwaway **testnet-only** key — never a wallet holding mainnet funds;
+* without the variable, behavior is unchanged (deterministic dev-victim).
+
+
+## Judge wallet connections (WalletConnect)
+
+Judges never touch the backend or any env file. In `apps/web` (step 1 of the
+page) they connect their **own** wallet:
+
+* desktop with MetaMask → injected provider used directly;
+* any other wallet (mobile Trust, Ledger, …) → **WalletConnect QR** via
+  `WALLETCONNECT_PROJECT_ID` in the API `.env` (free id from
+  cloud.walletconnect.com; it is a public browser-side identifier).
+
+The key-custody flow is unchanged: `/swap-request` returns an *unsigned* swap,
+the judge signs `eth_signTransaction` inside their own wallet, and only the
+raw signed tx reaches `/execute-sandwich`. Judge latency is absorbed because
+signing completes in the browser before the backend waits for the next block.
+
+> Note: the victim swap carries a 2-minute deadline — the UI prompts judges to
+> sign within ~90 seconds of requesting it.
 
 ## Honest-execution guarantees
 

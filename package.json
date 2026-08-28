@@ -23,8 +23,7 @@
     "simulate": "tsx packages/simulator/src/cli/simulate-cli.ts",
     "dev:api": "tsx apps/api/src/index.ts",
     "dev:web": "npx --yes serve -l 5173 apps/web/public",
-    "demo:deploy-token": "tsx demo/token/deploy-token.ts",
-    "demo:setup-pool": "tsx demo/pool/setup-pool.ts",
+    "demo:seed": "tsx scripts/seed-artifacts.ts",
     "demo:reset-pool": "tsx demo/pool/reset-pool.ts",
     "demo:sandwich": "tsx demo/sandwich/run-sandwich.ts"
   },

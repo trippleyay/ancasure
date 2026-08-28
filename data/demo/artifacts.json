@@ -1,0 +1,11 @@
+{
+  "mevTestToken": "0x0BFEEaeA054068F6befcF03d9C09D416788c49D1",
+  "pair": "0x0fC13e7D6111f5128579A83028d98505913192c5",
+  "source": "previously deployed MEVTEST + WETH/MEVTEST pair (golden-validated)",
+  "attacker": "0x49C1a0D565Aed360e261C7c694d60dAC4b083730",
+  "victim": "0x9f53C633246aCE0c99335DC28B5d5448Dbb31498",
+  "frontRunTx": "0xc1e58686de87d3615f8c86361dc9db1ea8cef43f0813b7faa35198b4a5d119c7",
+  "victimTx": "0xe77a673e08ae5f74a6ff2a7cd6438ba34fffa822c0e606f5704710d362919ef1",
+  "backRunTx": "0x91a46ccbc1b3469c99df6b4dca9fd9882022febb8f35f39ee95f02d00e2d0a9a",
+  "blockNumber": 11580861
+}

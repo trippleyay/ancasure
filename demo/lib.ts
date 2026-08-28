@@ -15,7 +15,7 @@ export function log(msg: string): void {
 }
 
 
-export const ROOT = path.resolve(__dirname, "..", "..");
+export const ROOT = path.resolve(__dirname, "..");
 export const DATA_DIR = path.join(ROOT, "data", "demo");
 const ARTIFACTS = path.join(DATA_DIR, "artifacts.json");
 
@@ -30,6 +30,30 @@ export const MINT_MEVTEST = ethers.parseEther("1000000"); // minted to deployer
 export const FRONT_WETH = ethers.parseEther("0.0012"); // attacker front-run
 export const VICTIM_WETH = ethers.parseEther("0.0024"); // victim trade (~8-9% loss)
 export const VICTIM_FUNDING = ethers.parseEther("0.01"); // gas + trade headroom
+
+/**
+ * Attack sizing — tunable WITHOUT code changes via SANDWICH_PROFILE env.
+ * Exact V2 math (loss peaks when front ≈ victim ≈ reserve):
+ *   "gentle"   front = 10%  reserve, victim = 20%  -> ~16% loss, ~0.013 ETH/run
+ *   "moderate" front = 30%  reserve, victim = 60%  -> ~35% loss, ~0.032 ETH/run
+ *   "brutal"   front = 100% reserve, victim = 100% -> ~67% loss, ~0.035 ETH/run
+ * Sizes are computed from LIVE reserves at run time, so the demo is
+ * repeatable indefinitely — no fixed amounts that decay as the pool grows.
+ */
+export type SizingProfile = "gentle" | "moderate" | "brutal";
+export function getSizingProfile(): SizingProfile {
+  const p = (process.env.SANDWICH_PROFILE ?? "moderate").toLowerCase();
+  return p === "gentle" ? "gentle" : p === "brutal" ? "brutal" : "moderate";
+}
+export function computeAttackSizes(reserveWeth: bigint, profile: SizingProfile): { front: bigint; victim: bigint } {
+  const f = profile === "gentle" ? 1n : profile === "brutal" ? 10n : 3n;
+  const v = profile === "gentle" ? 2n : profile === "brutal" ? 10n : 6n;
+  return { front: (reserveWeth * f) / 10n, victim: (reserveWeth * v) / 10n };
+}
+/** Gas headroom for the victim tx: 350k gas × (2×baseFee + 12 gwei tip) can
+ *  reach ~0.025 ETH at Sepolia base-fee spikes. Funding is a top-up to a
+ *  persistent balance, so unused headroom carries over — generous is free. */
+export const VICTIM_GAS_HEADROOM = ethers.parseEther("0.03");
 
 function loadDotEnv(): void {
   const envPath = path.join(ROOT, ".env");
@@ -106,6 +130,25 @@ export function deriveChildKey(label: string): string {
   if (!pk.startsWith("0x")) pk = "0x" + pk;
   const bytes = ethers.getBytes(pk);
   return ethers.keccak256(ethers.solidityPacked(["bytes", "string"], [bytes, label]));
+}
+
+/**
+ * The victim wallet for the controlled sandwich.
+ * - If VICTIM_PRIVATE_KEY is set (judge-supplied wallet for live demos), that
+ *   wallet is used as-is — the script only ever tops it UP (never moves funds
+ *   out) and the judge's key is read from env, never logged or persisted.
+ * - Otherwise a deterministic dev-victim is derived from the master key so
+ *   testing needs no extra wallet. Fixture-only, not the real judge flow.
+ */
+export function getVictimWallet(provider: ethers.Provider): ethers.Wallet {
+  loadDotEnv();
+  const judgePk = process.env.VICTIM_PRIVATE_KEY;
+  if (judgePk && judgePk.trim()) {
+    let pk = judgePk.trim();
+    if (!pk.startsWith("0x")) pk = "0x" + pk;
+    return new ethers.Wallet(pk, provider);
+  }
+  return new ethers.Wallet(deriveChildKey("mev-shield-victim"), provider);
 }
 
 export interface Artifacts {

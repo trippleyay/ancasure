@@ -88,7 +88,14 @@ const server = http.createServer(async (req, res) => {
 async function route(req: http.IncomingMessage, res: http.ServerResponse, pathname: string): Promise<void> {
   // ---------- health ----------
   if (req.method === "GET" && pathname === "/health") {
-    json(res, 200, { ok: true, service: "ancasure-api" });
+    json(res, 200, {
+      ok: true,
+      service: "ancasure-api",
+      // Public WalletConnect project id (safe to expose — it is a browser-side
+      // identifier, not a secret). Set WALLETCONNECT_PROJECT_ID in .env;
+      // free registration at https://cloud.walletconnect.com
+      wcProjectId: process.env.WALLETCONNECT_PROJECT_ID ?? "",
+    });
     return;
   }
 

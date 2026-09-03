@@ -31,13 +31,20 @@ contract AncaSureClaims {
     uint256 public constant RATIO_DENOMINATOR = 100;
     uint256 public immutable maxCapRaw;
 
+    // ---------- protection economics ----------
+    /// @notice Fixed testnet premium per wallet per coverage period (no USD oracle).
+    uint256 public constant PREMIUM_PER_WALLET = 0.001 ether;
+    /// @notice Coverage period per premium payment.
+    uint256 public constant COVERAGE_SECONDS = 30 days;
+
     // ---------- policy ----------
     struct Policy {
-        uint96 capRaw;
-        bool active;
+        uint96 capRaw;      // per-claim payout cap (defaults to maxCapRaw)
+        uint64 expiresAt;   // coverage end timestamp
+        address payer;      // wallet that paid the premium (may differ from owner)
     }
     mapping(address => Policy) public policies;
-    event PolicyRegistered(address indexed user, uint256 capRaw);
+    event PolicyRegistered(address indexed wallet, address indexed payer, uint256 capRaw, uint256 expiresAt);
     event PolicyRevoked(address indexed user);
 
     // ---------- claims ----------
@@ -104,12 +111,24 @@ contract AncaSureClaims {
         authorizer = a;
     }
 
-    /** @notice Judge/user registers a wallet with its per-claim payout cap. */
-    function registerProtection(uint256 capRaw) external {
-        if (capRaw == 0) revert CapTooSmall();
-        if (capRaw > maxCapRaw) revert CapTooLarge();
-        policies[msg.sender] = Policy({ capRaw: uint96(capRaw), active: true });
-        emit PolicyRegistered(msg.sender, capRaw);
+    /**
+     * @notice Protect one or more wallets for COVERAGE_SECONDS. The connected
+     *         wallet (msg.sender) is the PAYER; protected wallets may be any
+     *         addresses (typically wallets the payer also controls).
+     * @dev Premium must exactly match wallets.length × PREMIUM_PER_WALLET.
+     *      Coverage cap defaults to maxCapRaw. Premiums fund the payout pool.
+     */
+    function registerProtectionFor(address[] calldata wallets) external payable {
+        uint256 n = wallets.length;
+        if (n == 0) revert CapTooSmall();
+        if (msg.value != n * PREMIUM_PER_WALLET) revert WrongState();
+        for (uint256 i = 0; i < n; i++) {
+            address w = wallets[i];
+            if (w == address(0)) revert ZeroAddress();
+            uint64 exp = uint64(block.timestamp + COVERAGE_SECONDS);
+            policies[w] = Policy({ capRaw: uint96(maxCapRaw), expiresAt: exp, payer: msg.sender });
+            emit PolicyRegistered(w, msg.sender, maxCapRaw, exp);
+        }
     }
 
     function revokeProtection() external {
@@ -129,7 +148,7 @@ contract AncaSureClaims {
         bytes32 victimTxHash
     ) external onlyAuthorizer returns (uint256 id) {
         Policy memory p = policies[claimant];
-        if (!p.active) revert PolicyInactive();
+        if (p.expiresAt <= block.timestamp) revert PolicyInactive();
 
         uint256 payout = (verifiedLossRaw * RATIO_NUMERATOR) / RATIO_DENOMINATOR;
         if (payout > p.capRaw) payout = p.capRaw;
@@ -161,8 +180,13 @@ contract AncaSureClaims {
     /// @dev Off-chain quote helper mirroring the on-chain computation.
     function quotePayout(address user, uint256 verifiedLossRaw) external view returns (uint256) {
         Policy memory p = policies[user];
-        if (!p.active) return 0;
+        if (p.expiresAt <= block.timestamp) return 0;
         return _min((verifiedLossRaw * RATIO_NUMERATOR) / RATIO_DENOMINATOR, p.capRaw);
+    }
+
+    /// @notice Convenience view for frontends: is this wallet covered right now?
+    function isCovered(address user) external view returns (bool) {
+        return policies[user].expiresAt > block.timestamp;
     }
 
     function contractBalance() external view returns (uint256) {

@@ -55,3 +55,24 @@ export async function simulateAndSerialize(
 
   return simulateSandwich(rpc.getProvider(), result, evidence, frontRunIndex);
 }
+
+/**
+ * Convert the simulator's token-denominated loss into an ETH-denominated
+ * verified loss for the claims contract: the lost tokens are valued at the
+ * pool's PRE-ATTACK price (counterfactualOutput tokens per inputAmount wei).
+ *
+ *     lossEthWei = inputWei * lossTokens / counterfactualTokens
+ *
+ * Returns null when the report has no simulatable leg.
+ */
+export function verifiedLossEthWei(report: any): bigint | null {
+  const victim = report?.victims?.find((v: any) => v?.legs?.length > 0);
+  const leg = victim?.legs?.[0];
+  if (!leg) return null;
+  const { inputAmount, actualOutput, counterfactualOutput } = leg;
+  if (counterfactualOutput <= 0n) return null;
+  // value of what the victim ACTUALLY received, in wei, at pre-attack price
+  const actualValueWei = (BigInt(inputAmount) * BigInt(actualOutput)) / BigInt(counterfactualOutput);
+  const lossWei = BigInt(inputAmount) - actualValueWei;
+  return lossWei > 0n ? lossWei : 0n;
+}

@@ -1,4 +1,4 @@
-what /**
+/**
  * Step 3 — execute the controlled sandwich and verify ordering.
  *
  *   npx tsx scripts/sandwich-demo/run-sandwich.ts

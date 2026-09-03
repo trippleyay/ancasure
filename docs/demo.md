@@ -119,6 +119,25 @@ signing completes in the browser before the backend waits for the next block.
 > Note: the victim swap carries a 2-minute deadline — the UI prompts judges to
 > sign within ~90 seconds of requesting it.
 
+## AncaSure app vs MEV demo
+
+The repo hosts TWO products that will live on separate domains:
+
+1. **AncaSure app** (`index.html` → `ancasure-*.html`): the polished
+   four-screen insurance product — Landing, Dashboard, Protect wallets, File a
+   claim. Premium: 0.001 ETH per wallet per 30 days (fixed on-chain), policy
+   cap 0.05 ETH, payout = min(70% × verifiedLoss, cap).
+2. **MEV demo** (`demo.html`, old `index.html`): functional technical demo
+   (swap request → WalletConnect sign → controlled sandwich). Not part of the
+   polished app.
+
+Claims contract v2 (`AncaSureClaims`, deployed Sepolia
+`0xE3C87A15aa5907E13f8C3b693Ac8d13CA01F41C2`, payout pool pre-funded):
+`registerProtectionFor(address[] wallets) payable` (payer may protect other
+wallets), 30-day expiry enforced in `submitVerifiedClaim`, `isCovered` /
+`policies` views. Verified loss is ETH-denominated: token loss valued at the
+pool's pre-attack price by `verifiedLossEthWei`.
+
 ## Honest-execution guarantees
 
 * Nothing about ordering is simulated or fabricated; every tx really exists on

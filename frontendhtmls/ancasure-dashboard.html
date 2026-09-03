@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard — AncaSure</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F6F9FC;
+    --bg-alt:#EAF1FB;
+    --ink:#12141C;
+    --ink-soft:#5B6472;
+    --blue:#0A5CFF;
+    --blue-deep:#0842C4;
+    --orange:#E8850F;
+    --orange-deep:#B86200;
+    --orange-tint:rgba(232,133,15,0.08);
+    --blue-tint:rgba(10,92,255,0.08);
+    --blue-tint-strong:rgba(10,92,255,0.14);
+    --glass-bg:rgba(255,255,255,0.6);
+    --glass-border:rgba(255,255,255,0.85);
+    --line:rgba(18,20,28,0.10);
+    --green:#12A454;
+    --green-tint:rgba(18,164,84,0.10);
+    --amber:#C77F0A;
+    --amber-tint:rgba(199,127,10,0.10);
+    --red:#D1364A;
+    --red-tint:rgba(209,54,74,0.10);
+    --radius-lg:24px;
+    --radius-md:16px;
+    --radius-sm:10px;
+    --shadow-soft:0 20px 50px -22px rgba(18,20,28,0.14);
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Manrope', sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:inherit; text-decoration:none;}
+  ul{list-style:none;}
+  button{font-family:inherit; cursor:pointer; border:none; background:none;}
+  h1,h2,h3{ font-family:'Fraunces', serif; font-weight:500; letter-spacing:-0.01em; }
+
+  .app{
+    display:grid;
+    grid-template-columns:250px 1fr;
+    min-height:100vh;
+  }
+
+  /* SIDEBAR */
+  .sidebar{
+    background:rgba(255,255,255,0.6);
+    border-right:1px solid var(--line);
+    backdrop-filter:blur(20px);
+    -webkit-backdrop-filter:blur(20px);
+    padding:26px 20px;
+    display:flex;
+    flex-direction:column;
+    position:sticky;
+    top:0;
+    height:100vh;
+  }
+  .logo{
+    display:flex; align-items:center; gap:10px;
+    font-family:'Fraunces', serif;
+    font-size:19px; font-weight:600;
+    padding:6px 8px 30px;
+  }
+  .logo-mark{
+    width:26px; height:26px;
+    border-radius:8px;
+    border:1.5px dashed var(--ink-soft);
+    background:rgba(18,20,28,0.03);
+    display:inline-flex; align-items:center; justify-content:center;
+    font-size:8.5px; font-weight:800; color:var(--ink-soft);
+    flex-shrink:0;
+  }
+  .side-nav{ display:flex; flex-direction:column; gap:4px; flex:1; }
+  .side-link{
+    display:flex; align-items:center; gap:12px;
+    padding:11px 14px;
+    border-radius:12px;
+    font-size:14.5px;
+    font-weight:600;
+    color:var(--ink-soft);
+    transition:background 0.2s ease, color 0.2s ease;
+  }
+  .side-link svg{ width:18px; height:18px; flex-shrink:0; }
+  .side-link:hover{ background:var(--blue-tint); color:var(--ink); }
+  .side-link.active{ background:var(--blue-tint-strong); color:var(--blue-deep); }
+
+  .side-wallet{
+    margin-top:auto;
+    padding:14px;
+    border-radius:14px;
+    background:#fff;
+    border:1px solid var(--line);
+    display:flex; align-items:center; gap:10px;
+  }
+  .side-wallet .avatar{
+    width:34px; height:34px; border-radius:50%;
+    background:linear-gradient(135deg, var(--blue), #7FB0FF);
+    flex-shrink:0;
+  }
+  .side-wallet .info{ overflow:hidden; flex:1; }
+  .side-wallet .addr{ font-size:13px; font-weight:700; }
+  .side-wallet .tag{ font-size:11.5px; color:var(--ink-soft); }
+  .disconnect-btn{
+    width:30px; height:30px;
+    border-radius:8px;
+    display:flex; align-items:center; justify-content:center;
+    color:var(--ink-soft);
+    flex-shrink:0;
+    transition:background 0.2s ease, color 0.2s ease;
+  }
+  .disconnect-btn svg{ width:15px; height:15px; }
+  .disconnect-btn:hover{ background:var(--red-tint); color:var(--red); }
+
+  /* MAIN */
+  main{ padding:40px 48px 80px; }
+  .page-head{
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:34px;
+    flex-wrap:wrap; gap:16px;
+  }
+  .page-head h1{ font-size:32px; }
+  .page-head p{ color:var(--ink-soft); font-size:14.5px; margin-top:4px; }
+
+  .btn{
+    display:inline-flex; align-items:center; justify-content:center; gap:8px;
+    padding:12px 22px;
+    border-radius:100px;
+    font-weight:700; font-size:14px;
+    transition:transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    white-space:nowrap;
+  }
+  .btn-primary{
+    background:var(--blue); color:#fff;
+    box-shadow:0 10px 24px -10px rgba(10,92,255,0.5);
+  }
+  .btn-primary:hover{ background:var(--blue-deep); transform:translateY(-1px); }
+  .btn-ghost{
+    background:#fff; border:1px solid var(--line); color:var(--ink);
+  }
+  .btn-ghost:hover{ border-color:var(--blue); color:var(--blue-deep); }
+
+  /* SUMMARY */
+  .summary-grid{
+    display:grid;
+    grid-template-columns:repeat(4, 1fr);
+    gap:16px;
+    margin-bottom:40px;
+  }
+  .summary-card{
+    background:var(--glass-bg);
+    border:1px solid var(--glass-border);
+    backdrop-filter:blur(14px);
+    -webkit-backdrop-filter:blur(14px);
+    border-radius:var(--radius-md);
+    padding:22px 24px;
+    box-shadow:var(--shadow-soft);
+  }
+  .summary-card .num{ font-family:'Fraunces', serif; font-size:30px; color:var(--blue); margin-bottom:4px; }
+  .summary-card .lbl{ font-size:13px; color:var(--ink-soft); font-weight:600; }
+
+  /* PANELS */
+  .panel{
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:var(--radius-lg);
+    margin-bottom:28px;
+    overflow:hidden;
+  }
+  .panel-head{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:24px 26px;
+    border-bottom:1px solid var(--line);
+    flex-wrap:wrap; gap:12px;
+  }
+  .panel-head h3{ font-size:19px; }
+  .panel-head p{ font-size:13px; color:var(--ink-soft); margin-top:2px; }
+
+  table{ width:100%; border-collapse:collapse; }
+  th{
+    text-align:left;
+    font-size:11.5px;
+    text-transform:uppercase;
+    letter-spacing:0.05em;
+    color:var(--ink-soft);
+    font-weight:700;
+    padding:14px 26px;
+    background:var(--bg-alt);
+  }
+  td{
+    padding:18px 26px;
+    font-size:14px;
+    border-top:1px solid var(--line);
+  }
+  tr:hover td{ background:rgba(10,92,255,0.02); }
+
+  .addr-cell{ display:flex; align-items:center; gap:10px; font-weight:700; font-family:monospace; font-size:13.5px; }
+  .copy-btn{
+    width:22px; height:22px;
+    border-radius:6px;
+    display:inline-flex; align-items:center; justify-content:center;
+    color:var(--ink-soft);
+    transition:background 0.2s ease, color 0.2s ease;
+  }
+  .copy-btn:hover{ background:var(--blue-tint); color:var(--blue); }
+  .copy-btn svg{ width:13px; height:13px; }
+
+  .badge{
+    display:inline-flex; align-items:center;
+    padding:5px 12px;
+    border-radius:100px;
+    font-size:12px; font-weight:700;
+  }
+  .badge-covered{ background:var(--green-tint); color:var(--green); }
+  .badge-expired{ background:var(--red-tint); color:var(--red); }
+  .badge-notcovered{ background:rgba(18,20,28,0.06); color:var(--ink-soft); }
+  .badge-pending{ background:var(--amber-tint); color:var(--amber); }
+  .badge-eligible{ background:var(--blue-tint-strong); color:var(--blue-deep); }
+  .badge-paid{ background:var(--green-tint); color:var(--green); }
+  .badge-processing{ background:var(--amber-tint); color:var(--amber); }
+  .badge-rejected{ background:var(--red-tint); color:var(--red); }
+
+  .row-action{
+    font-size:13px; font-weight:700; color:var(--blue);
+  }
+  .row-action:hover{ color:var(--blue-deep); }
+
+  .empty-note{ padding:40px 26px; text-align:center; color:var(--ink-soft); font-size:14px; }
+
+  @media (max-width:1000px){
+    .app{ grid-template-columns:1fr; }
+    .sidebar{
+      position:relative; height:auto;
+      flex-direction:row; align-items:center; flex-wrap:wrap;
+      gap:14px; padding:16px 20px;
+    }
+    .logo{ padding:0; }
+    .side-nav{
+      display:flex; flex-direction:row; flex:none;
+      order:3; width:100%;
+      overflow-x:auto;
+      gap:6px;
+    }
+    .side-link{ padding:9px 14px; white-space:nowrap; }
+    .side-wallet{ margin-top:0; margin-left:auto; }
+    main{ padding:28px 20px 60px; }
+    .summary-grid{ grid-template-columns:1fr 1fr; }
+    table{ font-size:13px; }
+    th, td{ padding:12px 16px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <aside class="sidebar">
+    <a href="ancasure-landing.html" class="logo"><span class="logo-mark">LOGO</span>AncaSure</a>
+    <nav class="side-nav">
+      <a href="ancasure-dashboard.html" class="side-link active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+        Dashboard
+      </a>
+      <a href="ancasure-protection.html" class="side-link">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"/><path d="M9 12l2 2 4-4"/></svg>
+        Protect wallets
+      </a>
+      <a href="ancasure-claim.html" class="side-link">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1v22"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+        File a claim
+      </a>
+    </nav>
+    <div class="side-wallet">
+      <div class="avatar"></div>
+      <div class="info">
+        <div class="addr">0x4F2a...9C1b</div>
+        <div class="tag">Connected wallet</div>
+      </div>
+      <a href="ancasure-landing.html" class="disconnect-btn" title="Disconnect wallet">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+      </a>
+    </div>
+  </aside>
+
+  <main>
+    <div class="page-head">
+      <div>
+        <h1>Dashboard</h1>
+      </div>
+    </div>
+
+    <div class="summary-grid">
+      <div class="summary-card">
+        <div class="num">4</div>
+        <div class="lbl">Protected wallets</div>
+      </div>
+      <div class="summary-card">
+        <div class="num" style="color:var(--orange);">3</div>
+        <div class="lbl">Active coverage</div>
+      </div>
+      <div class="summary-card">
+        <div class="num">1</div>
+        <div class="lbl">Expiring in 7 days</div>
+      </div>
+      <div class="summary-card">
+        <div class="num" style="color:var(--orange);">2</div>
+        <div class="lbl">Claims this month</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h3>My wallets</h3>
+        </div>
+        <a href="#" class="btn btn-ghost">+ Add wallet</a>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Wallet</th>
+            <th>Status</th>
+            <th>Coverage expires</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <div class="addr-cell">
+                0x4F2a...9C1b
+                <button class="copy-btn" title="Copy address"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg></button>
+              </div>
+            </td>
+            <td><span class="badge badge-covered">Covered</span></td>
+            <td>Sep 24, 2026</td>
+            <td><a href="#" class="row-action">Manage</a></td>
+          </tr>
+          <tr>
+            <td>
+              <div class="addr-cell">
+                0x73Bc...B420
+                <button class="copy-btn" title="Copy address"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg></button>
+              </div>
+            </td>
+            <td><span class="badge badge-covered">Covered</span></td>
+            <td>Sep 2, 2026</td>
+            <td><a href="#" class="row-action">Manage</a></td>
+          </tr>
+          <tr>
+            <td>
+              <div class="addr-cell">
+                0xCC91...18EF
+                <button class="copy-btn" title="Copy address"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg></button>
+              </div>
+            </td>
+            <td><span class="badge badge-expired">Expired</span></td>
+            <td>Aug 12, 2026</td>
+            <td><a href="ancasure-protection.html" class="row-action">Renew</a></td>
+          </tr>
+          <tr>
+            <td>
+              <div class="addr-cell">
+                0xA167...44D2
+                <button class="copy-btn" title="Copy address"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 012-2h10"/></svg></button>
+              </div>
+            </td>
+            <td><span class="badge badge-notcovered">Not covered</span></td>
+            <td>—</td>
+            <td><a href="ancasure-protection.html" class="row-action">Protect</a></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h3>Claims history</h3>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Wallet</th>
+            <th>Claim date</th>
+            <th>Status</th>
+            <th>Payout</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="addr-cell" style="font-weight:700;">0x4F2a...9C1b</td>
+            <td>Aug 21, 2026</td>
+            <td><span class="badge badge-paid">Paid</span></td>
+            <td>$412.60</td>
+            <td><a href="#" class="row-action">View</a></td>
+          </tr>
+          <tr>
+            <td class="addr-cell" style="font-weight:700;">0x73Bc...B420</td>
+            <td>Aug 15, 2026</td>
+            <td><span class="badge badge-processing">Processing</span></td>
+            <td>Pending</td>
+            <td><a href="#" class="row-action">View</a></td>
+          </tr>
+          <tr>
+            <td class="addr-cell" style="font-weight:700;">0xCC91...18EF</td>
+            <td>Jul 30, 2026</td>
+            <td><span class="badge badge-rejected">Not eligible</span></td>
+            <td>—</td>
+            <td><a href="#" class="row-action">View</a></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+</div>
+
+</body>
+</html>

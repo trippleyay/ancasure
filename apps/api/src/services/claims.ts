@@ -30,13 +30,125 @@ function loadDeployment(): Deployment {
 const CLAIMS_ABI = [
   "function submitVerifiedClaim(address claimant,uint256 verifiedLossRaw,bytes32 victimTxHash) returns (uint256)",
   "function quotePayout(address user,uint256 verifiedLossRaw) view returns (uint256)",
-  "function policies(address) view returns (uint96 capRaw,bool active)",
+  "function policies(address) view returns (uint96 capRaw,uint64 expiresAt,address payer)",
+  "function isCovered(address user) view returns (bool)",
+  "function PREMIUM_PER_WALLET() view returns (uint256)",
+  "event PolicyRegistered(address indexed wallet, address indexed payer, uint256 capRaw, uint256 expiresAt)",
+  "event ClaimAuthorized(uint256 indexed id, address indexed claimant, uint256 verifiedLossRaw, uint256 payoutRaw, bytes32 victimTxHash)",
+  "event ClaimPaid(uint256 indexed id, address indexed claimant, uint256 amount)",
 ];
+
+export function claimsContract(provider: ethers.Provider): ethers.Contract {
+  const d = loadDeployment();
+  return new ethers.Contract(d.address, CLAIMS_ABI, provider);
+}
+
+/** Resilient Sepolia provider (Alchemy free tier drops plain providers). */
+function sepoliaProvider(): ethers.JsonRpcProvider {
+  const url = process.env.SEPOLIA_RPC_URL!;
+  const fr = new ethers.FetchRequest(url);
+  fr.timeout = 60_000;
+  const net = new ethers.Network("sepolia", 11155111);
+  return new ethers.JsonRpcProvider(fr, net, { staticNetwork: net, batchMaxCount: 1 });
+}
+
+async function retry<T>(label: string, fn: () => Promise<T>, tries = 4): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 1; i <= tries; i++) {
+    try { return await fn(); }
+    catch (e) {
+      lastErr = e;
+      await new Promise((r) => setTimeout(r, 1200 * i * i));
+    }
+  }
+  throw lastErr;
+}
+
+export interface PolicyInfo {
+  address: string;
+  covered: boolean;
+  capRaw: string;
+  expiresAt: number; // unix seconds
+  payer: string;
+}
+
+/** Read on-chain protection state for one wallet. */
+export async function getPolicy(address: string): Promise<PolicyInfo> {
+  const c = claimsContract(sepoliaProvider());
+  const [capRaw, expiresAt, payer] = await retry("policies", () => c.policies(address));
+  return {
+    address,
+    covered: Number(expiresAt) > Math.floor(Date.now() / 1000),
+    capRaw: capRaw.toString(),
+    expiresAt: Number(expiresAt),
+    payer,
+  };
+}
+
+export interface HistoryEntry {
+  id: string;
+  kind: "authorized" | "paid";
+  claimant: string;
+  amountRaw: string; // payoutRaw (authorized) or amount (paid)
+  verifiedLossRaw?: string;
+  victimTxHash?: string; // bytes32 → tx-hash-shaped hex
+  txHash?: string; // ethereum tx that emitted the event
+  blockNumber: number;
+}
+
+/**
+ * Claims history for one claimant.
+ *
+ * Source of truth: the server-side claims log (appended at authorize time).
+ * eth_getLogs range queries are impractical on the free Alchemy tier (10-block
+ * cap), so each entry's CURRENT on-chain state (Eligible → Paid?) is read back
+ * from the contract with single-view calls instead of event scans.
+ */
+export async function getClaimsHistory(claimant: string): Promise<HistoryEntry[]> {
+  const logPath = path.join(ROOT, "data", "demo", "claims-log.jsonl");
+  if (!fs.existsSync(logPath)) return [];
+  const c = claimsContract(sepoliaProvider());
+  const claimantLower = claimant.toLowerCase();
+
+  const rows = fs.readFileSync(logPath, "utf8").split("\n")
+    .filter(Boolean)
+    .map((line) => { try { return JSON.parse(line); } catch { return null; } })
+    .filter((r): r is any => !!r && String(r.claimant ?? "").toLowerCase() === claimantLower)
+    .sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""));
+
+  const out: HistoryEntry[] = [];
+  for (const r of rows) {
+    let kind: HistoryEntry["kind"] = "authorized";
+    let amountRaw = "";
+    let blockNumber = 0;
+    if (r.claimId) {
+      try {
+        const claim = await retry("claims", () => c.claims(BigInt(r.claimId)));
+        // claims(id) → [claimant, verifiedLossRaw, payoutRaw, state, victimTxHash]
+        amountRaw = claim[2].toString();
+        kind = Number(claim[3]) === 2 ? "paid" : "authorized";
+      } catch { amountRaw = r.verifiedLossRaw ?? ""; }
+    } else {
+      amountRaw = r.verifiedLossRaw ?? "";
+    }
+    out.push({
+      id: r.claimId != null ? String(r.claimId) : "",
+      kind,
+      claimant: r.claimant,
+      amountRaw,
+      verifiedLossRaw: r.verifiedLossRaw,
+      victimTxHash: r.victimTxHash,
+      txHash: r.txHash,
+      blockNumber,
+    });
+  }
+  return out;
+}
 
 /** On-chain quote for a pipeline-produced loss (view call; no key needed). */
 export async function quotePayoutOnChain(claimant: string, verifiedLossRaw: bigint): Promise<bigint> {
   const d = loadDeployment();
-  const provider = new ethers.JsonRpcProvider(process.env.SEPOLIA_RPC_URL!);
+  const provider = sepoliaProvider();
   const c = new ethers.Contract(d.address, CLAIMS_ABI, provider);
   return c.quotePayout(claimant, verifiedLossRaw);
 }
@@ -51,8 +163,8 @@ export async function authorizeClaim(
   victimTxHash: string,
 ): Promise<{ claimId: bigint; txHash: string }> {
   loadDotEnv();
-  const pk = process.env.AUTHORIZER_PRIVATE_KEY;
-  if (!pk) throw new Error("AUTHORIZER_PRIVATE_KEY is not set");
+  const pk = process.env.AUTHORIZER_PRIVATE_KEY ?? process.env.PRIVATE_KEY;
+  if (!pk) throw new Error("AUTHORIZER_PRIVATE_KEY (or PRIVATE_KEY) is not set");
   const d = loadDeployment();
   const rpc = process.env.SEPOLIA_RPC_URL!;
   if (!rpc) throw new Error("SEPOLIA_RPC_URL is not set");

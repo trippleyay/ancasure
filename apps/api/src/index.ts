@@ -5,6 +5,9 @@
  *   POST /detect            {victimTxHash, chain?}
  *   POST /simulate          {victimTxHash, chain?}
  *   POST /verify            {chain, txHashes[]}         Creditcoin/Attestcoin proofs
+ *   POST /check-eligibility {victimTxHash}              read-only claim check (no mutation)
+ *   GET  /policies          ?addresses=0x..,..           on-chain protection state
+ *   GET  /claims-history    ?address=0x..                ClaimAuthorized/Paid events
  *   POST  /swap-request     {judgeAddress}              unsigned victim swap for judge signing
  *   POST  /execute-sandwich {signedVictimRawTx}         controlled trio around judge's tx
  *   POST  /claim            {victimTxHash}              full pipeline → authorized on-chain claim
@@ -27,9 +30,9 @@ import {
 } from "@ancsure/shared";
 import { detectForTxHash } from "@ancsure/detector";
 import { getSepoliaProvider, sepoliaMasterWallet } from "@ancsure/ethereum";
-import { simulateAndSerialize } from "./services/simulation.js";
+import { simulateAndSerialize, verifiedLossEthWei } from "./services/simulation.js";
 import { verifyEvidence } from "./services/verification.js";
-import { authorizeClaim } from "./services/claims.js";
+import { authorizeClaim, getPolicy, getClaimsHistory, quotePayoutOnChain } from "./services/claims.js";
 import {
   executeControlledSandwich,
   buildVictimSwapRequest,
@@ -88,6 +91,13 @@ const server = http.createServer(async (req, res) => {
 async function route(req: http.IncomingMessage, res: http.ServerResponse, pathname: string): Promise<void> {
   // ---------- health ----------
   if (req.method === "GET" && pathname === "/health") {
+    // Claims contract address: env wins, else the deploy script's output file.
+    let claimsAddress = process.env.CLAIMS_CONTRACT_ADDRESS ?? "";
+    if (!claimsAddress) {
+      try {
+        claimsAddress = JSON.parse(fs.readFileSync(path.join(ROOT, "data", "demo", "claims-deployment.json"), "utf8")).address ?? "";
+      } catch { /* not deployed yet */ }
+    }
     json(res, 200, {
       ok: true,
       service: "ancasure-api",
@@ -95,6 +105,7 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, pathna
       // identifier, not a secret). Set WALLETCONNECT_PROJECT_ID in .env;
       // free registration at https://cloud.walletconnect.com
       wcProjectId: process.env.WALLETCONNECT_PROJECT_ID ?? "",
+      claimsContractAddress: claimsAddress,
     });
     return;
   }
@@ -181,11 +192,10 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, pathna
       json(res, 422, { eligible: false, reason: result.explanation ?? "not a sandwich" });
       return;
     }
-    // 2) verified loss from the proven simulator
+    // 2) verified loss from the proven simulator, valued in ETH at the
+    //    pre-attack pool price (the contract pays out in ETH)
     const report: any = await simulateAndSerialize(rpcUrlFor(chain), hash);
-    const lossRaw = BigInt(
-      report?.victims?.[0]?.verifiedLossRaw ?? report?.victims?.[0]?.loss ?? report?.totalLossRaw ?? 0,
-    );
+    const lossRaw = verifiedLossEthWei(report) ?? 0n;
     if (lossRaw <= 0n) {
       json(res, 422, { eligible: false, reason: "simulated loss is zero" });
       return;
@@ -210,6 +220,93 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, pathna
       verifiedLossRaw: lossRaw.toString(),
       ratio: `${CLAIM_RATIO_NUMERATOR}/${CLAIM_RATIO_DENOMINATOR}`,
       defaultCapRaw: DEFAULT_POLICY_CAP_RAW,
+    });
+    return;
+  }
+
+  // ---------- GET /policies?addresses=0x..,0x.. -------------------------------
+  if (req.method === "GET" && pathname === "/policies") {
+    const url = new URL(req.url!, `http://localhost:${PORT}`);
+    const addrs = (url.searchParams.get("addresses") ?? "")
+      .split(",").map((a) => a.trim()).filter((a) => /^0x[0-9a-fA-F]{40}$/.test(a));
+    if (addrs.length === 0) throw new Error("addresses query param required (comma-separated)");
+    const policies = [];
+    for (const a of [...new Set(addrs)].slice(0, 25)) {
+      try { policies.push(await getPolicy(a)); }
+      catch (e) { policies.push({ address: a, covered: false, capRaw: "0", expiresAt: 0, payer: "", error: (e as Error).message }); }
+    }
+    json(res, 200, { policies });
+    return;
+  }
+
+  // ---------- GET /claims-history?address=0x.. --------------------------------
+  if (req.method === "GET" && pathname === "/claims-history") {
+    const url = new URL(req.url!, `http://localhost:${PORT}`);
+    const addr = url.searchParams.get("address") ?? "";
+    if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) throw new Error("address query param required");
+    json(res, 200, { claims: await getClaimsHistory(addr) });
+    return;
+  }
+
+  // ---------- POST /check-eligibility {victimTxHash} --------------------------
+  // Read-only pipeline: detect → simulate → verify → quote. NEVER authorizes or
+  // mutates the contract — the Claim screen uses this for its eligible/not state.
+  if (req.method === "POST" && pathname === "/check-eligibility") {
+    const body = await readBody(req);
+    const hash: string = body.victimTxHash;
+    if (!hash || !HASH_RE.test(hash)) throw new Error("victimTxHash must be a hex hash");
+    const chain = resolveChain(body.chain);
+
+    const result = await detectForTxHash(rpcUrlFor(chain), hash);
+    if (result.classification !== "SANDWICH") {
+      json(res, 200, { eligible: false, classification: result.classification, reason: result.explanation ?? "not a sandwich" });
+      return;
+    }
+    const report: any = await simulateAndSerialize(rpcUrlFor(chain), hash);
+    const leg = report?.victims?.find((v: any) => v?.legs?.length > 0)?.legs?.[0];
+    const lossRaw = verifiedLossEthWei(report) ?? 0n;
+    if (lossRaw <= 0n) {
+      json(res, 200, { eligible: false, classification: "SANDWICH", reason: "simulated loss is zero" });
+      return;
+    }
+    const hashes = [result.frontRunTx!, hash, result.backRunTx!];
+    const proof = await verifyEvidence(hashes, chain);
+    if (proof.failures.length > 0) {
+      json(res, 502, { eligible: false, classification: "SANDWICH", reason: "proof pipeline failures", failures: proof.failures });
+      return;
+    }
+    // claimant = victim tx signer (wallet must have controlled the protected wallet)
+    const provider = new ethers.JsonRpcProvider(rpcUrlFor(chain));
+    const victimTx = await provider.getTransaction(hash);
+    if (!victimTx) throw new Error("victim tx not found");
+    const claimant = victimTx.from;
+    let payoutQuoteRaw = "0";
+    try { payoutQuoteRaw = (await quotePayoutOnChain(claimant, lossRaw)).toString(); } catch { /* contract not configured */ }
+    const policy = await getPolicy(claimant).catch(() => null);
+
+    json(res, 200, {
+      eligible: policy?.covered === true && BigInt(payoutQuoteRaw) > 0n,
+      classification: "SANDWICH",
+      claimant,
+      evidence: {
+        frontRunTx: result.frontRunTx,
+        victimTxHash: hash,
+        backRunTx: result.backRunTx,
+        blockNumber: report.blockNumber,
+        attacker: report.attacker,
+        pools: report.pools,
+      },
+      execution: leg ? {
+        inputRaw: leg.inputAmount.toString(),
+        actualOutputRaw: leg.actualOutput.toString(),
+        counterfactualOutputRaw: leg.counterfactualOutput.toString(),
+        lossRaw: leg.loss.toString(),
+        exactMatch: leg.exactMatch,
+      } : null,
+      verifiedLossRaw: lossRaw.toString(), // ETH wei
+      payoutQuoteRaw,                      // ETH wei, from the contract
+      policy,
+      ratio: `${CLAIM_RATIO_NUMERATOR}/${CLAIM_RATIO_DENOMINATOR}`,
     });
     return;
   }

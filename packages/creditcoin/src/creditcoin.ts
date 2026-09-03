@@ -43,9 +43,20 @@ export async function verifyTransactions(
   const failures: Array<{ txHash: string; error: string }> = [];
 
   // Batch first when possible: same-block transactions share a continuity proof.
+  // NOTE: the proof API takes a NUMERIC chain key (u64) from ITS OWN namespace
+  // (CC3 testnet prover: 1 = Ethereum Sepolia, 3 = Ethereum Mainnet), NOT the
+  // Creditcoin registry chainKey (102) — passing a string 400s at the prover.
+  const proverChainKey = Number(
+    process.env[`CC_PROVER_CHAIN_KEY_${chain.replace(/-/g, "_").toUpperCase()}`]
+      ?? (chain === "ethereum-sepolia" ? 1 : chain === "ethereum-mainnet" ? 3 : NaN),
+  );
+  if (!Number.isInteger(proverChainKey)) {
+    throw new Error(`no prover chain key for ${chain} (set CC_PROVER_CHAIN_KEY_${chain.replace(/-/g, "_").toUpperCase()})`);
+  }
+
   for (const txHash of txHashes) {
     try {
-      const builder = new ProofBuilder(cfg.chainKey, DEFAULT_PROVER_URL);
+      const builder = new ProofBuilder(proverChainKey, DEFAULT_PROVER_URL);
       const proofResult = await builder.getProof(txHash);
       if (!proofResult.success || !proofResult.data) {
         throw new Error(proofResult.error ?? "proof generation failed");

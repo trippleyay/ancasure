@@ -13,6 +13,8 @@
  *   GET  /claims-history    ?address=0x..                ClaimAuthorized/Paid events
  *   POST  /swap-request     {judgeAddress}              unsigned victim swap for judge signing
  *   POST  /execute-sandwich {signedVictimRawTx}         controlled trio around judge's tx
+ *   POST  /attack-prepare     {victimAddress}            mempool-watch attack for browser wallets
+ *   GET   /attack-status      ?watchId=..                mempool-watch outcome
  *   GET   /mev-demo                                     standalone MEV Creator frontend (attack simulator)
  *   POST  /claim            {victimTxHash}              full pipeline → authorized on-chain claim
  *   GET   /run-latest                                   last controlled run artifacts
@@ -40,8 +42,12 @@ import { authorizeClaim, getPolicy, getClaimsHistory, quotePayoutOnChain } from 
 import {
   executeControlledSandwich,
   buildVictimSwapRequest,
+  startMempoolSandwich,
 } from "../../../demo/sandwich/service.js";
 import { loadArtifacts } from "../../../demo/lib.js";
+
+/** In-memory registry of mempool-watch attacks (per process; demo scope). */
+const mempoolWatches = new Map<string, ReturnType<typeof startMempoolSandwich>>();
 
 const PORT = Number(process.env.PORT ?? 3000);
 const ROOT = path.resolve(__dirname, "..", "..", "..");
@@ -212,6 +218,36 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, pathna
       JSON.stringify({ at: new Date().toISOString(), judge: parsed.from, outcome }, null, 2),
     );
     json(res, outcome.ok ? 200 : 422, outcome);
+    return;
+  }
+
+  // ---------- POST /attack-prepare — mempool-watch attack (browser wallets) ----
+  // Desktop MetaMask no longer supports eth_signTransaction, so the victim
+  // broadcasts their OWN swap (normal eth_sendTransaction, 12.01 gwei tip).
+  // This plans the attack, returns the unsigned victim swap and starts an
+  // in-memory watcher that sandwiches it the moment it hits the mempool.
+  if (req.method === "POST" && pathname === "/attack-prepare") {
+    const body = await readBody(req);
+    const victim: string = String(body.victimAddress ?? "").toLowerCase();
+    if (!ADDR_RE.test(victim)) throw new Error("victimAddress must be a 0x.. address");
+    const watch = startMempoolSandwich(
+      getSepoliaProvider(),
+      sepoliaMasterWallet(getSepoliaProvider()),
+      victim,
+      { say: console.log },
+    );
+    mempoolWatches.set(watch.id, watch);
+    json(res, 200, { watchId: watch.id, swap: watch.swap });
+    return;
+  }
+
+  // ---------- GET /attack-status?watchId=.. ------------------------------------
+  if (req.method === "GET" && pathname === "/attack-status") {
+    const url = new URL(req.url!, `http://localhost:${PORT}`);
+    const id = url.searchParams.get("watchId") ?? "";
+    const watch = mempoolWatches.get(id);
+    if (!watch) throw new Error("unknown watchId");
+    json(res, 200, watch.status());
     return;
   }
 

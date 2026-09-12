@@ -32,16 +32,17 @@ product — what you do with the resulting transaction hashes is up to you.</p>
   <button id="connect">Connect browser wallet</button>
   <button id="connectWc">Connect via WalletConnect (QR)</button>
   <span id="wallet" class="muted">not connected</span>
-  <p class="muted">Desktop MetaMask no longer supports the transaction-signing method the attack needs —
-  use “Connect via WalletConnect (QR)” with a mobile wallet (MetaMask Mobile, Rainbow, Trust…).</p>
+  <p class="muted">Works with desktop MetaMask: you confirm a normal swap, and the attack wraps it
+  while it waits for the next block (front-run 12.02 gwei tip → your swap 12.01 → back-run 12.00).
+  Mobile wallets via WalletConnect QR also work.</p>
 </section>
 
 <section>
   <h3>2 · Fire the sandwich</h3>
   <button id="attack" disabled>Sign swap &amp; run attack</button>
   <a id="etherscanVictim" target="_blank" rel="noreferrer" hidden>victim tx ↗</a>
-  <pre id="attackOut">The connected wallet signs the victim swap in-browser (eth_signTransaction),
-then the backend broadcasts front-run → your swap → back-run at the next block.</pre>
+  <pre id="attackOut">You confirm a normal swap in your wallet; the backend watches the mempool
+and wraps it in a front-run / back-run the moment it appears.</pre>
 </section>
 
 <section>
@@ -106,42 +107,50 @@ async function connectWallet(forceWC = false) {
 $("connect").onclick = () => connectWallet(false).catch((e) => { $("wallet").textContent = "connect failed: " + (e.message ?? e); });
 $("connectWc").onclick = () => connectWallet(true).catch((e) => { $("wallet").textContent = "connect failed: " + (e.message ?? e); });
 
-// The victim signs their own swap via eth_signTransaction through the connected
-// wallet (injected OR WalletConnect — both speak EIP-1193). NO private keys.
-// Signing happens entirely in the browser BEFORE /execute-sandwich is called,
-// so the trio fires at the next block open.
+// Normal flow: backend plans the attack and returns the victim swap; the
+// victim sends it via a REGULAR wallet confirm (eth_sendTransaction — works
+// with desktop MetaMask); the backend's mempool watcher sandwiches it the
+// moment it appears (front 12.02 gwei tip > victim 12.01 > back 12.00).
 $("attack").onclick = async () => {
   try {
     if (!provider || !account) throw new Error("connect a wallet first");
-    $("attackOut").textContent = "building victim swap…";
-    pendingSwap = await api("/swap-request", { judgeAddress: account });
-    $("attackOut").textContent = "waiting for wallet signature… (sign within ~90s — the swap has a 2-minute deadline)";
-    const raw = await provider.send("eth_signTransaction", [{
+    $("attackOut").className = "";
+    $("attackOut").textContent = "planning attack (computing sizes from live pool)…";
+    const prep = await api("/attack-prepare", { victimAddress: account });
+    const s = prep.swap;
+    $("attackOut").textContent = "confirm the swap in your wallet — you have ~3 minutes (attack fires while it waits for a block)";
+    const victimHash = await provider.send("eth_sendTransaction", [{
         from: account,
-        to: pendingSwap.to,
-        value: "0x" + BigInt(pendingSwap.valueWei).toString(16),
-        data: pendingSwap.data,
+        to: s.to,
+        value: "0x" + BigInt(s.valueWei).toString(16),
+        data: s.data,
         gas: "0x55730",
-        maxPriorityFeePerGas: "0x" + ethers.parseUnits(pendingSwap.suggestedTipGwei, "gwei").toString(16),
+        maxPriorityFeePerGas: "0x" + ethers.parseUnits(s.suggestedTipGwei, "gwei").toString(16),
         type: "0x2",
     }]);
-    $("attackOut").textContent = "broadcasting controlled trio (front-run / victim / back-run)…";
-    const out = await api("/execute-sandwich", { signedVictimRawTx: raw });
-    $("attackOut").className = out.ok ? "ok" : "bad";
-    $("attackOut").textContent = JSON.stringify(out, null, 2);
-    if (out.ok && out.victimHash) {
-      $("victimHash").value = out.victimHash;
-      const link = $("etherscanVictim");
-      link.href = "https://sepolia.etherscan.io/tx/" + out.victimHash;
-      link.hidden = false;
-      link.textContent = "victim tx ↗";
+    $("victimHash").value = victimHash;
+    const link = $("etherscanVictim");
+    link.href = "https://sepolia.etherscan.io/tx/" + victimHash;
+    link.hidden = false;
+    link.textContent = "victim tx ↗";
+    $("attackOut").textContent = "victim swap broadcast — attacker front/back firing around it…";
+    for (;;) {
+      const st = await api("/attack-status?watchId=" + prep.watchId);
+      if (st.seenVictim && !st.done) $("attackOut").textContent = "victim spotted in mempool — firing attacker pair…";
+      if (st.done) {
+        const out = st.outcome;
+        $("attackOut").className = out.ok ? "ok" : "bad";
+        $("attackOut").textContent = out.ok
+          ? `SANDWICH LANDED ✓ block ${out.block}\nfront:  ${out.frontHash}\nvictim: ${out.victimHash}\nback:   ${out.backHash}`
+          : "attack failed: " + (out.reason ?? "unknown") + (out.victimHash ? `\nvictim was mined: ${out.victimHash}` : "");
+        if (out.victimHash) $("victimHash").value = out.victimHash;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 2000));
     }
   } catch (e) {
     $("attackOut").className = "bad";
-    const msg = String((e as any)?.message ?? e);
-    $("attackOut").textContent = /-32094|Method not supported/i.test(msg)
-      ? "This wallet rejected the signing method (eth_signTransaction). Desktop MetaMask no longer supports it — reconnect using “Connect via WalletConnect (QR)” with a mobile wallet."
-      : msg;
+    $("attackOut").textContent = String((e as any)?.message ?? e);
   }
 };
 

@@ -29,8 +29,11 @@ product — what you do with the resulting transaction hashes is up to you.</p>
 
 <section>
   <h3>1 · Connect the victim wallet</h3>
-  <button id="connect">Connect wallet</button>
+  <button id="connect">Connect browser wallet</button>
+  <button id="connectWc">Connect via WalletConnect (QR)</button>
   <span id="wallet" class="muted">not connected</span>
+  <p class="muted">Desktop MetaMask no longer supports the transaction-signing method the attack needs —
+  use “Connect via WalletConnect (QR)” with a mobile wallet (MetaMask Mobile, Rainbow, Trust…).</p>
 </section>
 
 <section>
@@ -70,9 +73,11 @@ async function api(path, body) {
 
 api("/health").then((h) => { wcProjectId = h.wcProjectId ?? ""; }).catch(() => {});
 
-async function connectWallet() {
+async function connectWallet(forceWC = false) {
   // 1) Browser extension (MetaMask etc.) — instant, no QR.
-  if (window.ethereum) {
+  //    NOTE: desktop MetaMask rejects eth_signTransaction (-32094), which the
+  //    attack needs — so offer WalletConnect explicitly.
+  if (window.ethereum && !forceWC) {
     provider = new ethers.BrowserProvider(window.ethereum);
     await provider.send("eth_requestAccounts", []);
     account = (await provider.listAccounts())[0].address;
@@ -98,7 +103,8 @@ async function connectWallet() {
   $("attack").disabled = false;
 }
 
-$("connect").onclick = () => connectWallet().catch((e) => { $("wallet").textContent = "connect failed: " + (e.message ?? e); });
+$("connect").onclick = () => connectWallet(false).catch((e) => { $("wallet").textContent = "connect failed: " + (e.message ?? e); });
+$("connectWc").onclick = () => connectWallet(true).catch((e) => { $("wallet").textContent = "connect failed: " + (e.message ?? e); });
 
 // The victim signs their own swap via eth_signTransaction through the connected
 // wallet (injected OR WalletConnect — both speak EIP-1193). NO private keys.
@@ -132,7 +138,10 @@ $("attack").onclick = async () => {
     }
   } catch (e) {
     $("attackOut").className = "bad";
-    $("attackOut").textContent = String(e.message ?? e);
+    const msg = String((e as any)?.message ?? e);
+    $("attackOut").textContent = /-32094|Method not supported/i.test(msg)
+      ? "This wallet rejected the signing method (eth_signTransaction). Desktop MetaMask no longer supports it — reconnect using “Connect via WalletConnect (QR)” with a mobile wallet."
+      : msg;
   }
 };
 

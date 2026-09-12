@@ -39,15 +39,38 @@ can top it up: `npx tsx demo/pool/topup.ts <judgeAddress> <amountEth>`.
 
 ## End-to-end flow
 
-1. Judge opens `apps/web`, connects wallet.
-2. *Register protection* — frontend calls `POST /protect` → `registerProtection(cap)` on the deployed `AncaSureClaims`.
-3. *Protected swap* — `GET /api/swap-tx?valueEth=0.0024` returns an unsigned victim swap (router path WETH→MEVTEST, minOut=1). Judge signs it in-browser and POSTs the signed tx.
-4. Backend holds the signed victim tx, pre-signs front-run (12.02 gwei tip) and back-run (12.00 gwei), waits for a fresh block and broadcasts all three nearly simultaneously — builders pack them by descending priority fee: **[front][victim][back]** (identical mechanics to the validated golden run).
-5. On confirmation all three hashes + block/index are recorded (`data/demo/run-latest.json`) and echoed back.
-6. `POST /detect {victimTxHash}` → detector classifies the run.
-7. `POST /simulate {victimTxHash}` → verified counterfactual loss.
-8. `POST /verify {chain, txHashes:[front,victim,back]}` → Creditcoin/Attestcoin proofs built + statically verified on-chain.
-9. `POST /claim` → authorizer submits `submitVerifiedClaim(judge, loss, victimTxHash)`; once mined, judge calls/payments execute via `payClaim`.
+The React app (`npm run dev:web`) has three screens: **Dashboard** (add/remove
+wallets), **Protect wallets** (pay premium on-chain via `registerProtectionFor`),
+and **File a claim** (paste a victim tx hash → `POST /check-eligibility`).
+
+1. Judge opens the web app, connects a wallet (this connected wallet is the
+   owner; it appears automatically on the Dashboard).
+2. *Register protection* — on **Protect wallets** the owner selects wallets and
+   pays `PREMIUM_PER_WALLET` per wallet in one transaction
+   (`registerProtectionFor([...])` on the deployed `AncaSureClaims`). Coverage
+   state lives ONLY on-chain; the Dashboard reads it live via
+   `GET /wallets?owner=0x..` (SQLite stores just the owner→wallet list).
+3. *Attack* — the MEV creator (`demo/sandwich/service.ts`) builds the controlled
+   trio around a victim swap:
+   - **Browser flow (judge wallet = victim):** `POST /swap-request` returns an
+     unsigned victim swap (router path WETH→MEVTEST, minOut=1); the judge signs
+     it in-browser and the signed tx is POSTed to `POST /execute-sandwich`.
+   - **CLI flow (any wallet as victim):** `VICTIM_PRIVATE_KEY=0x<key>
+     npx tsx demo/sandwich/run-sandwich.ts`.
+   The backend pre-signs front-run (12.02 gwei tip) and back-run (12.00 gwei),
+   waits for a fresh block and broadcasts all three nearly simultaneously —
+   builders pack them by descending priority fee: **[front][victim][back]**
+   (identical mechanics to the validated golden run).
+4. On confirmation all three hashes + block/index are recorded
+   (`data/demo/run-latest.json`, also `GET /run-latest`) and echoed back.
+5. *Claim* — paste the victim tx hash on **File a claim**. Pipeline:
+   `POST /detect` classifies the run → `POST /simulate` computes the verified
+   counterfactual loss → `POST /verify` builds Attestcoin/Creditcoin proofs for
+   all three transactions → eligibility is quoted on-chain. The claimant is
+   always the **victim tx signer**; `AncaSureClaims` checks its active paid
+   policy, enforces `payout = min(70% × verifiedLoss, cap)` and duplicate-claim
+   protection, and pays out. Uncovered wallets and non-sandwich transactions are
+   rejected there — never by Creditcoin, which only verifies evidence.
 
 CLI equivalent of steps 3–5 for development (uses the deterministic dev-victim wallet — fixtures only, not the final judge flow):
 
@@ -147,3 +170,56 @@ pool's pre-attack price by `verifiedLossEthWei`.
   golden implementation.
 * Historical transactions serve strictly as regression fixtures
   (`data/fixtures/golden-sandwich.json`).
+
+## Worked example: two covered wallets, one uncovered
+
+Goal: owner with three extra wallets — **c1** and **c2** covered, **u1** left
+uncovered — then attack c1 (claim pays), attack u1 (claim rejected: uncovered),
+and attempt a claim for c2 with no attack (rejected: not a sandwich).
+
+The web app does not label wallets — note each address as you add it. The
+claimant is always the **victim tx signer**, so c1 and u1 must be real wallets
+whose private keys you hold (import them into MetaMask or paste the key into
+`VICTIM_PRIVATE_KEY`).
+
+```bash
+# 0) one-time + servers
+cp .env.example .env                  # fill RPC key, PRIVATE_KEY, CLAIMS_CONTRACT_ADDRESS
+npx tsx scripts/seed-artifacts.ts
+npx tsx demo/pool/reset-pool.ts       # canonicalize pool if drifted
+npm run dev:api                       # terminal 1
+npm run dev:web                       # terminal 2
+
+# 1) fund c1 and u1 with trade size + gas (they must sign victim swaps)
+npx tsx demo/pool/topup.ts <c1_address> 0.05
+npx tsx demo/pool/topup.ts <u1_address> 0.05
+```
+
+```text
+2) In the browser (connected as owner):
+   Dashboard  → add c1, c2, u1 (three “+ Add wallet” — they persist in SQLite)
+   Protect    → tick ONLY c1 and c2 → “Protect selected wallets” → confirm tx
+                (premium = 2 × PREMIUM_PER_WALLET; u1 stays “Not covered”)
+
+3) Attack c1 — its wallet signs the victim swap:
+   VICTIM_PRIVATE_KEY=0x<c1_key> npx tsx demo/sandwich/run-sandwich.ts
+   → note VICTIM_HASH from the output / data/demo/run-latest.json
+
+4) Attack u1 the same way:
+   VICTIM_PRIVATE_KEY=0x<u1_key> npx tsx demo/sandwich/run-sandwich.ts
+   → note its VICTIM_HASH too
+
+5) Give c2 a normal (non-attacked) transaction: any plain Sepolia tx from c2
+   (e.g. a 0 ETH self-transfer) and note its hash — this is the “no MEV” case.
+```
+
+```text
+6) In the browser, File a claim:
+   • paste c1's VICTIM_HASH → eligible ✓  pipeline detects the sandwich,
+     verifies evidence on Creditcoin, quotes payout on-chain, authorizer pays
+     min(70% × verifiedLoss, cap)
+   • paste u1's VICTIM_HASH → rejected: “wallet has no active protection” —
+     evidence verifies fine, but AncaSureClaims finds no paid policy for u1
+   • paste c2's plain-tx hash → rejected: “not a sandwich” — the detector
+     classifies the tx as non-attack, so no loss is ever computed
+```

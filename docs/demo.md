@@ -37,6 +37,17 @@ Artifacts (addresses, hashes — no secrets) land in `data/demo/artifacts.json`.
 The judge wallet needs Sepolia ETH for gas + trade size (faucets); the backend
 can top it up: `npx tsx demo/pool/topup.ts <judgeAddress> <amountEth>`.
 
+## Two apps, one codebase
+
+- **AncaSure** (`apps/web`, served by `npm run dev:web`) — the product: connect
+  wallet, manage/protect wallets, file claims. Never asks for private keys; the
+  connected wallet signs everything (WalletConnect or injected).
+- **MEV Creator** (`apps/mev-demo`, served at **`GET http://localhost:3000/mev-demo`**
+  while the API runs) — a standalone attack simulator for anyone, AncaSure or
+  not. Connect any wallet (it becomes the victim — it signs its own swap via
+  `eth_signTransaction` in-browser, no keys typed) and fire a real
+  front-run/victim/back-run trio on Sepolia.
+
 ## End-to-end flow
 
 The React app (`npm run dev:web`) has three screens: **Dashboard** (add/remove
@@ -179,8 +190,8 @@ and attempt a claim for c2 with no attack (rejected: not a sandwich).
 
 The web app does not label wallets — note each address as you add it. The
 claimant is always the **victim tx signer**, so c1 and u1 must be real wallets
-whose private keys you hold (import them into MetaMask or paste the key into
-`VICTIM_PRIVATE_KEY`).
+you can connect with (import them into MetaMask, or scan with a mobile wallet
+via WalletConnect in the MEV Creator).
 
 ```bash
 # 0) one-time + servers
@@ -201,13 +212,13 @@ npx tsx demo/pool/topup.ts <u1_address> 0.05
    Protect    → tick ONLY c1 and c2 → “Protect selected wallets” → confirm tx
                 (premium = 2 × PREMIUM_PER_WALLET; u1 stays “Not covered”)
 
-3) Attack c1 — its wallet signs the victim swap:
-   VICTIM_PRIVATE_KEY=0x<c1_key> npx tsx demo/sandwich/run-sandwich.ts
-   → note VICTIM_HASH from the output / data/demo/run-latest.json
+3) Attack c1 — open the MEV Creator (http://localhost:3000/mev-demo) in the
+   browser, connect the c1 wallet (MetaMask or WalletConnect QR — c1 signs its
+   own swap, no keys typed), click “Sign swap & run attack”.
+   → the victim tx hash is auto-filled and shown on Etherscan.
 
-4) Attack u1 the same way:
-   VICTIM_PRIVATE_KEY=0x<u1_key> npx tsx demo/sandwich/run-sandwich.ts
-   → note its VICTIM_HASH too
+4) Attack u1 — in the MEV Creator, disconnect/connect the u1 wallet
+   (or just use a different browser profile), connect u1, fire the attack.
 
 5) Give c2 a normal (non-attacked) transaction: any plain Sepolia tx from c2
    (e.g. a 0 ETH self-transfer) and note its hash — this is the “no MEV” case.

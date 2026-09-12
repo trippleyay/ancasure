@@ -38,8 +38,9 @@ paid policy, enforces the cap/payout rules and duplicate-claim protection →
 | `packages/simulator` | **Proven** deterministic counterfactual-loss simulator |
 | `packages/ethereum` | Ethereum RPC utilities, log decoding, normalization, Sepolia demo helpers |
 | `packages/creditcoin` | Creditcoin/Attestcoin integration (ProofBuilder → BlockProver → normalized evidence) |
-| `apps/api` | Backend HTTP API (`POST /detect`, `POST /simulate`, claim authorization service) |
-| `apps/web` | Minimal judge-facing frontend (connect → register → protected swap → claim) |
+| `apps/api` | Backend HTTP API (`POST /detect`, `POST /simulate`, claim authorization service, wallet book, `GET /mev-demo`) |
+| `apps/web` | **AncaSure product UI** (connect → dashboard → protect → claim) |
+| `apps/mev-demo` | **MEV Creator** — standalone attack-simulator frontend (`GET /mev-demo`): anyone connects a wallet and fires a sandwich on Sepolia. Proof tool, not an AncaSure feature |
 | `contracts/claims` | `AncaSureClaims.sol` + Hardhat tests/deploy |
 | `demo/` | Controlled Sepolia environment: MEVTEST token, pool setup/reset, controlled sandwich |
 | `docs/` | `architecture.md`, `claim-rules.md`, `demo.md` |

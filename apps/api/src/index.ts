@@ -13,6 +13,7 @@
  *   GET  /claims-history    ?address=0x..                ClaimAuthorized/Paid events
  *   POST  /swap-request     {judgeAddress}              unsigned victim swap for judge signing
  *   POST  /execute-sandwich {signedVictimRawTx}         controlled trio around judge's tx
+ *   GET   /mev-demo                                     standalone MEV Creator frontend (attack simulator)
  *   POST  /claim            {victimTxHash}              full pipeline → authorized on-chain claim
  *   GET   /run-latest                                   last controlled run artifacts
  *
@@ -388,6 +389,17 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, pathna
       policy,
       ratio: `${CLAIM_RATIO_NUMERATOR}/${CLAIM_RATIO_DENOMINATOR}`,
     });
+    return;
+  }
+
+  // ---------- GET /mev-demo — standalone MEV Creator frontend ------------------
+  // Static single-file app (apps/mev-demo/index.html): anyone connects a wallet
+  // (WalletConnect QR or injected) and fires a controlled sandwich on Sepolia.
+  // Separate from the AncaSure product UI — this only CREATES attacks.
+  if (req.method === "GET" && pathname === "/mev-demo") {
+    const html = fs.readFileSync(path.join(ROOT, "apps", "mev-demo", "index.html"), "utf8");
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end(html);
     return;
   }
 

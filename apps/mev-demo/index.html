@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>MEV Creator — Sepolia sandwich-attack simulator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
+  <!-- WalletConnect v2 (UMD). Any wallet, any device — scan the QR. No private keys, ever. -->
+  <script src="https://unpkg.com/@walletconnect/ethereum-provider@2.17.2/dist/index.umd.js"></script>
+  <style>
+    body { font-family: ui-monospace, monospace; max-width: 860px; margin: 2rem auto; background: #111; color: #ddd; }
+    section { border: 1px solid #333; padding: 1rem; margin-bottom: 1rem; }
+    button { margin: .25rem .5rem .25rem 0; padding: .45rem .9rem; cursor: pointer; }
+    button:disabled { opacity: .4; cursor: default; }
+    pre { background: #000; padding: .6rem; overflow-x: auto; font-size: .75rem; white-space: pre-wrap; }
+    input { width: 100%; box-sizing: border-box; background:#000;color:#ddd;border:1px solid #444;padding:.35rem; }
+    h1 { color: #f80; } h3 { color: #9cf; margin: 0 0 .5rem; }
+    a { color: #7bf; } .ok { color: #7d7 } .bad { color: #d77 }
+    .muted { color: #777; font-size: .8rem; }
+  </style>
+</head>
+<body>
+<h1>MEV Creator</h1>
+<p>Standalone sandwich-attack simulator for Sepolia. Connect ANY wallet — it becomes
+the victim of a real front-run / swap / back-run trio against the MEVTEST pool.
+No private keys are ever typed; the connected wallet signs its own swap.</p>
+<p class="muted">This tool only CREATES attacks. It is not part of any insurance
+product — what you do with the resulting transaction hashes is up to you.</p>
+
+<section>
+  <h3>1 · Connect the victim wallet</h3>
+  <button id="connect">Connect wallet</button>
+  <span id="wallet" class="muted">not connected</span>
+</section>
+
+<section>
+  <h3>2 · Fire the sandwich</h3>
+  <button id="attack" disabled>Sign swap &amp; run attack</button>
+  <a id="etherscanVictim" target="_blank" rel="noreferrer" hidden>victim tx ↗</a>
+  <pre id="attackOut">The connected wallet signs the victim swap in-browser (eth_signTransaction),
+then the backend broadcasts front-run → your swap → back-run at the next block.</pre>
+</section>
+
+<section>
+  <h3>3 · Inspect any transaction (optional)</h3>
+  <input id="victimHash" placeholder="victim tx hash (auto-filled after an attack)" />
+  <button id="detect">Detect</button>
+  <button id="simulate">Simulate loss</button>
+  <pre id="flowOut">Server-side analysis: detector classification + counterfactual loss.</pre>
+</section>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+let provider, account;
+let pendingSwap = null;
+let wcProjectId = "";
+const SEPOLIA_CHAIN_ID = 11155111;
+const API = location.port === "5173" ? "http://localhost:3000" : ""; // same-origin when served by the API
+
+async function api(path, body) {
+  const r = await fetch(API + path, {
+    method: body ? "POST" : "GET",
+    headers: { "content-type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const j = await r.json();
+  if (!r.ok && !j.classification) throw new Error(j.error ?? JSON.stringify(j));
+  return j;
+}
+
+api("/health").then((h) => { wcProjectId = h.wcProjectId ?? ""; }).catch(() => {});
+
+async function connectWallet() {
+  // 1) Browser extension (MetaMask etc.) — instant, no QR.
+  if (window.ethereum) {
+    provider = new ethers.BrowserProvider(window.ethereum);
+    await provider.send("eth_requestAccounts", []);
+    account = (await provider.listAccounts())[0].address;
+    $("wallet").textContent = "connected (injected): " + account;
+    $("attack").disabled = false;
+    return;
+  }
+  // 2) WalletConnect — any mobile/desktop wallet via QR.
+  const WCPkg = window["@walletconnect/ethereum-provider"] ?? window.WalletConnectEthereumProvider;
+  if (!WCPkg) throw new Error("WalletConnect library failed to load");
+  const WCProvider = WCPkg.EthereumProvider ?? WCPkg;
+  if (!wcProjectId) throw new Error("WalletConnect not configured: set WALLETCONNECT_PROJECT_ID in the API .env");
+  const wc = await WCProvider.init({
+    projectId: wcProjectId,
+    chains: [SEPOLIA_CHAIN_ID],
+    rpcMap: { [SEPOLIA_CHAIN_ID]: "https://rpc.sepolia.org" },
+    showQrModal: true,
+    metadata: { name: "MEV Creator", description: "Sepolia sandwich-attack simulator", url: "https://mev-creator.demo", icons: [] },
+  });
+  provider = new ethers.BrowserProvider(wc, undefined, { staticNetwork: new ethers.Network("sepolia", SEPOLIA_CHAIN_ID) });
+  account = (await provider.listAccounts())[0].address;
+  $("wallet").textContent = "connected (WalletConnect): " + account;
+  $("attack").disabled = false;
+}
+
+$("connect").onclick = () => connectWallet().catch((e) => { $("wallet").textContent = "connect failed: " + (e.message ?? e); });
+
+// The victim signs their own swap via eth_signTransaction through the connected
+// wallet (injected OR WalletConnect — both speak EIP-1193). NO private keys.
+// Signing happens entirely in the browser BEFORE /execute-sandwich is called,
+// so the trio fires at the next block open.
+$("attack").onclick = async () => {
+  try {
+    if (!provider || !account) throw new Error("connect a wallet first");
+    $("attackOut").textContent = "building victim swap…";
+    pendingSwap = await api("/swap-request", { judgeAddress: account });
+    $("attackOut").textContent = "waiting for wallet signature… (sign within ~90s — the swap has a 2-minute deadline)";
+    const raw = await provider.send("eth_signTransaction", [{
+        from: account,
+        to: pendingSwap.to,
+        value: "0x" + BigInt(pendingSwap.valueWei).toString(16),
+        data: pendingSwap.data,
+        gas: "0x55730",
+        maxPriorityFeePerGas: "0x" + ethers.parseUnits(pendingSwap.suggestedTipGwei, "gwei").toString(16),
+        type: "0x2",
+    }]);
+    $("attackOut").textContent = "broadcasting controlled trio (front-run / victim / back-run)…";
+    const out = await api("/execute-sandwich", { signedVictimRawTx: raw });
+    $("attackOut").className = out.ok ? "ok" : "bad";
+    $("attackOut").textContent = JSON.stringify(out, null, 2);
+    if (out.ok && out.victimHash) {
+      $("victimHash").value = out.victimHash;
+      const link = $("etherscanVictim");
+      link.href = "https://sepolia.etherscan.io/tx/" + out.victimHash;
+      link.hidden = false;
+      link.textContent = "victim tx ↗";
+    }
+  } catch (e) {
+    $("attackOut").className = "bad";
+    $("attackOut").textContent = String(e.message ?? e);
+  }
+};
+
+$("detect").onclick = async () => {
+  try {
+    const r = await api("/detect", { victimTxHash: $("victimHash").value.trim() });
+    $("flowOut").className = "";
+    $("flowOut").textContent = JSON.stringify(r.result, null, 2);
+  } catch (e) { $("flowOut").textContent = String(e.message ?? e); }
+};
+
+$("simulate").onclick = async () => {
+  try {
+    const r = await api("/simulate", { victimTxHash: $("victimHash").value.trim() });
+    $("flowOut").className = "";
+    $("flowOut").textContent = JSON.stringify(r.report, null, 2);
+  } catch (e) { $("flowOut").textContent = String(e.message ?? e); }
+};
+</script>
+</body>
+</html>

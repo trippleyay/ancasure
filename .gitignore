@@ -30,3 +30,5 @@ data/sandwich-demo/
 .vscode/
 .idea/
 data/ancasure.db
+data/demo/claims-log.jsonl
+data/demo/run-latest.json

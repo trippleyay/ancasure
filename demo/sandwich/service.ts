@@ -129,6 +129,7 @@ export async function startMempoolSandwich(
 
   let seenVictim = false;
   let outcome: TrioOutcome | undefined;
+  const watchId = crypto.randomUUID();
 
   // Plan and victim swap BEFORE returning — the caller needs the swap params
   // immediately (the victim broadcasts them from their own browser wallet).
@@ -139,7 +140,7 @@ export async function startMempoolSandwich(
   const victimSwap = await buildVictimSwapRequest(victimAddress, tokenAddr);
 
   const watch: MempoolWatch = {
-    id: crypto.randomUUID(),
+    id: watchId,
     swap: victimSwap,
     status: () => ({ done: !!outcome, seenVictim, outcome }),
     promise: (async () => {
@@ -158,7 +159,7 @@ export async function startMempoolSandwich(
       });
 
       const deadline = Date.now() + (opts.timeoutMs ?? 180_000);
-      say(`[watch ${watch.id.slice(0, 8)}] watching mempool for victim swap from ${victimAddress}...`);
+      say(`[watch ${watchId.slice(0, 8)}] watching mempool for victim swap from ${victimAddress}...`);
       let victimHash = "";
       while (Date.now() < deadline && !victimHash) {
         await new Promise((r) => setTimeout(r, 1500));

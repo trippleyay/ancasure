@@ -47,7 +47,7 @@ import {
 import { loadArtifacts } from "../../../demo/lib.js";
 
 /** In-memory registry of mempool-watch attacks (per process; demo scope). */
-const mempoolWatches = new Map<string, ReturnType<typeof startMempoolSandwich>>();
+const mempoolWatches = new Map<string, Awaited<ReturnType<typeof startMempoolSandwich>>>();
 
 const PORT = Number(process.env.PORT ?? 3000);
 const ROOT = path.resolve(__dirname, "..", "..", "..");

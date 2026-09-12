@@ -1,6 +1,16 @@
 /**
  * Claim authorization service.
  *
+ * Claim responsibility (strict order):
+ *   1. user selects a protected wallet + victim tx hash
+ *   2. Creditcoin/Attestcoin verifies the EXTERNAL-CHAIN evidence (transaction,
+ *      ordering, receipt status, Swap/Sync logs, sandwich) — it is an evidence
+ *      verifier ONLY, never the insurance-policy authority
+ *   3. the backend computes the verified loss
+ *   4. AncaSureClaims checks the wallet's active paid policy
+ *   5. AncaSureClaims enforces cap, payout rules, duplicate-claim protection
+ *   6. AncaSureClaims pays out
+ *
  * The verified loss value submitted on-chain comes EXCLUSIVELY from the
  * detector+simulator pipeline — never from request bodies. The authorizer EOA
  * (backend signer) is the only identity allowed to call submitVerifiedClaim on

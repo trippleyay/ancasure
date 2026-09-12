@@ -13,6 +13,22 @@ AncaSure does **not** prevent MEV. It makes attackers' damage financial rather t
 7. The user may claim **70% of that verified loss**, subject to the policy cap: `payout = min(70% × verifiedLoss, policyCap)`.
 8. Claim authorization and payout settle through Creditcoin.
 
+## Data ownership & claim responsibility
+
+Storage responsibilities are strictly separated:
+
+| State | Owner | Where |
+|---|---|---|
+| Owner → added-wallet relationships | **API (SQLite)** | `DATABASE_PATH` (default `data/ancasure.db`), table `wallets` with `UNIQUE(owner_address, wallet_address)` — only `owner_address`, `wallet_address`, `created_at` |
+| Policy status, expiry, cap, premium, payouts, duplicate-claim protection | **`AncaSureClaims` contract** | on-chain, read live via `getPolicy` (never cached in SQLite) |
+| External-chain evidence: transaction, ordering, receipt status, Swap/Sync logs, sandwich proof, loss-calculation inputs | **Creditcoin/Attestcoin** | verification only — **not** the insurance-policy authority |
+
+Claim flow (in order): user selects a protected wallet + transaction hash →
+Attestcoin/Creditcoin verifies the external Ethereum transaction evidence and
+sandwich → backend computes the verified loss → `AncaSureClaims` checks active
+paid policy, enforces the cap/payout rules and duplicate-claim protection →
+`AncaSureClaims` pays out.
+
 ## Repository layout
 
 | Path | Contents |

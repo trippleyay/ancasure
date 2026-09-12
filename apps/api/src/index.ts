@@ -230,7 +230,7 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, pathna
     const body = await readBody(req);
     const victim: string = String(body.victimAddress ?? "").toLowerCase();
     if (!ADDR_RE.test(victim)) throw new Error("victimAddress must be a 0x.. address");
-    const watch = startMempoolSandwich(
+    const watch = await startMempoolSandwich(
       getSepoliaProvider(),
       sepoliaMasterWallet(getSepoliaProvider()),
       victim,

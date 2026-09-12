@@ -115,12 +115,12 @@ export interface MempoolWatch {
  * mechanics to the golden run. If the block closes before the attacker lands,
  * the attempt reports failure honestly (receipts read back, never fabricated).
  */
-export function startMempoolSandwich(
+export async function startMempoolSandwich(
   provider: ethers.Provider & { send: (m: string, p: unknown[]) => Promise<unknown> },
   attackerWallet: ethers.Wallet,
   victimAddress: string,
   opts: { pair?: string; mevTestToken?: string; timeoutMs?: number; say?: (m: string) => void } = {},
-): MempoolWatch {
+): Promise<MempoolWatch> {
   const say = opts.say ?? log;
   const art = loadArtifacts();
   const tokenAddr = opts.mevTestToken ?? art.mevTestToken!;
@@ -130,19 +130,22 @@ export function startMempoolSandwich(
   let seenVictim = false;
   let outcome: TrioOutcome | undefined;
 
+  // Plan and victim swap BEFORE returning — the caller needs the swap params
+  // immediately (the victim broadcasts them from their own browser wallet).
+  const plan = await planAttempt(provider, pairAddr, tokenAddr);
+  if (plan.predictedLossBps < 100n || plan.predictedLossBps > 1200n) {
+    throw new Error(`predicted loss ${(Number(plan.predictedLossBps) / 100).toFixed(2)}% outside safety band`);
+  }
+  const victimSwap = await buildVictimSwapRequest(victimAddress, tokenAddr);
+
   const watch: MempoolWatch = {
     id: crypto.randomUUID(),
-    swap: { to: "", valueWei: "0", data: "", suggestedTipGwei: "12.01" },
+    swap: victimSwap,
     status: () => ({ done: !!outcome, seenVictim, outcome }),
     promise: (async () => {
       const router = new ethers.Contract(ROUTER, ROUTER_ABI, attackerWallet);
       const chainId = (await provider.getNetwork()).chainId;
-      const plan = await planAttempt(provider, pairAddr, tokenAddr);
-      if (plan.predictedLossBps < 100n || plan.predictedLossBps > 1200n) {
-        throw new Error(`predicted loss ${(Number(plan.predictedLossBps) / 100).toFixed(2)}% outside safety band`);
-      }
-      watch.swap = await buildVictimSwapRequest(victimAddress, tokenAddr);
-      const dataMatch = watch.swap.data.toLowerCase();
+      const dataMatch = victimSwap.data.toLowerCase();
 
       const latest = await retry("getBlock", () => provider.getBlock("latest"));
       const baseFee = latest?.baseFeePerGas ?? ethers.parseUnits("15", "gwei");

@@ -104,6 +104,7 @@ export default function Protection() {
               ? "Switch to Sepolia to protect"
               : isPending ? "Confirm in wallet…" : "Protect selected wallets"}
           </button>
+          {/* TODO(pre-deploy): remove debug error display before hosting. */}
           {writeError && (
             <div className="empty-note" style={{ color: "var(--red)" }}>
               {writeError.message.slice(0, 200)}

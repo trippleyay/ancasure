@@ -1,14 +1,55 @@
+// Structured (parsed) ABI — viem's writeContract chokes on human-readable
+// strings for payable array-arg functions ("cannot use 'in' operator…").
 export const ANCA_SURE_ABI = [
-  "function registerProtectionFor(address[] wallets) payable",
-  "function revokeProtection()",
-  "function submitVerifiedClaim(address claimant,uint256 verifiedLossRaw,bytes32 victimTxHash) returns (uint256)",
-  "function payClaim(uint256 id)",
-  "function quotePayout(address user,uint256 verifiedLossRaw) view returns (uint256)",
-  "function isCovered(address user) view returns (bool)",
-  "function policies(address) view returns (uint96 capRaw,uint64 expiresAt,address payer)",
-  "function PREMIUM_PER_WALLET() view returns (uint256)",
-  "function RATIO_NUMERATOR() view returns (uint256)",
-  "function RATIO_DENOMINATOR() view returns (uint256)",
+  {
+    type: "function",
+    name: "registerProtectionFor",
+    stateMutability: "payable",
+    inputs: [{ name: "wallets", type: "address[]" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "revokeProtection",
+    stateMutability: "nonpayable",
+    inputs: [],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "quotePayout",
+    stateMutability: "view",
+    inputs: [
+      { name: "user", type: "address" },
+      { name: "verifiedLossRaw", type: "uint256" },
+    ],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "isCovered",
+    stateMutability: "view",
+    inputs: [{ name: "user", type: "address" }],
+    outputs: [{ type: "bool" }],
+  },
+  {
+    type: "function",
+    name: "policies",
+    stateMutability: "view",
+    inputs: [{ name: "user", type: "address" }],
+    outputs: [
+      { name: "capRaw", type: "uint96" },
+      { name: "expiresAt", type: "uint64" },
+      { name: "payer", type: "address" },
+    ],
+  },
+  {
+    type: "function",
+    name: "PREMIUM_PER_WALLET",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ type: "uint256" }],
+  },
 ] as const;
 
 // Set after deploy / read from API /health claimsContractAddress

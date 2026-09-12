@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { useAccount, useWriteContract, useReadContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useSwitchChain, useWriteContract, useReadContract, useWaitForTransactionReceipt } from "wagmi";
+import { sepolia } from "wagmi/chains";
 import { parseEther, formatEther } from "viem";
 import { shortAddr } from "../api";
 import { ConnectGate } from "./util";
@@ -25,7 +26,9 @@ export default function Protection() {
   });
   const premium = premiumRaw ? BigInt(premiumRaw as bigint) : parseEther("0.001");
 
-  const { data: writeHash, writeContract, isPending } = useWriteContract();
+  const { chainId } = useAccount();
+  const { switchChain } = useSwitchChain();
+  const { data: writeHash, writeContract, isPending, error: writeError } = useWriteContract();
   const { data: receipt, isSuccess: confirmed } = useWaitForTransactionReceipt({ hash: writeHash });
 
   // Wallets added on the Dashboard — these are the ones you can protect.
@@ -44,6 +47,11 @@ export default function Protection() {
 
   function pay() {
     if (!selected.length) return;
+    // Wallet must be on Sepolia — otherwise writeContract fails silently.
+    if (chainId !== sepolia.id) {
+      switchChain({ chainId: sepolia.id });
+      return;
+    }
     writeContract({
       address: claimsContractAddress as `0x${string}`,
       abi: ANCA_SURE_ABI,
@@ -92,8 +100,15 @@ export default function Protection() {
           <div className="summary-line"><span className="lbl">Payer wallet</span><span style={{ fontFamily: "monospace" }}>{shortAddr(address)}</span></div>
           <div className="summary-total"><span className="lbl">Total payment</span><span>{formatEther(premium * BigInt(Math.max(selected.length, 1)))} ETH</span></div>
           <button className="btn btn-primary btn-block" onClick={pay} disabled={!selected.length || isPending}>
-            {isPending ? "Confirm in wallet…" : "Protect selected wallets"}
+            {chainId !== sepolia.id
+              ? "Switch to Sepolia to protect"
+              : isPending ? "Confirm in wallet…" : "Protect selected wallets"}
           </button>
+          {writeError && (
+            <div className="empty-note" style={{ color: "var(--red)" }}>
+              {writeError.message.slice(0, 200)}
+            </div>
+          )}
           {confirmed && (
             <div className="empty-note" style={{ color: "var(--green)" }}>
               Coverage is active.{" "}

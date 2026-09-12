@@ -46,11 +46,26 @@
 <section>
   <h3>How it works</h3>
   <p class="muted">
-    1. Connect any Sepolia wallet — it becomes the attack victim.<br>
-    2. Confirm a normal swap (0.0021 ETH → MEVTEST on the demo pool).<br>
-    3. The backend watches the mempool and wraps your swap in a real
-    front-run / back-run pair on the same block.<br>
-    4. You get the three transaction hashes. Sepolia testnet only.
+    <b>What this is:</b> a standalone tool that creates a REAL sandwich attack
+    (front-run → your swap → back-run) on the Sepolia testnet. Your connected
+    wallet is the victim — just like a trader getting MEV'd on a DEX. It exists
+    to produce genuine attack transactions on demand for demo purposes.<br><br>
+    <b>Steps:</b><br>
+    1. Click "Connect browser wallet" and pick your Sepolia account.<br>
+    2. Click "Sign swap &amp; run attack" and confirm the swap in your wallet.<br>
+    3. Wait ~30–60 seconds while the attack wraps your swap, then copy the
+    victim tx hash shown here.<br><br>
+    <b>Inspect any transaction:</b><br>
+    "Detect" answers "was this transaction part of a sandwich attack?" —
+    it prints a report showing the front-run and back-run hashes around the
+    victim swap, the attacker's address, and which rules passed
+    (classification: SANDWICH means a verified attack).<br>
+    "Simulate loss" answers "how much did the attack cost the victim?" —
+    it prints what the victim actually received vs. what they would have
+    received without the front-run, and the difference is the verified loss
+    (in raw token units).<br>
+    Both outputs are raw JSON. A successful look always ends with
+    "classification": "SANDWICH" and a non-zero "loss".
   </p>
 </section>
 
@@ -83,20 +98,61 @@ async function api(path, body) {
   return j;
 }
 
-// Browser extension (MetaMask etc.). eth_requestAccounts returns silently when
-// the site was already authorized — switch the active account in MetaMask to
-// change the victim.
+// Browser extension wallet. If several extensions are installed they all fight
+// over window.ethereum — prefer MetaMask when present (EIP-1193 multi-provider).
+function getInjected() {
+  const eth = window.ethereum;
+  if (!eth) return null;
+  if (Array.isArray(eth.providers)) {
+    return eth.providers.find((p) => p.isMetaMask) ?? eth.providers[0];
+  }
+  return eth;
+}
+
+function friendly(e) {
+  const s = JSON.stringify(e?.info ?? "") + " " + (e?.code ?? "") + " " + (e?.message ?? e);
+  if (e?.code === "ACTION_REJECTED" || /4001|"reason": ?"rejected"|user.?denied|User denied/i.test(s)) {
+    return "You rejected the request — nothing was sent. Click the button again when you're ready.";
+  }
+  if (/INSUFFICIENT_FUNDS|insufficient funds/i.test(s)) {
+    return "Not enough Sepolia ETH in the selected account for the swap + gas.";
+  }
+  if (/-32094|Method not supported/i.test(s)) {
+    return "This wallet doesn't support the required signing method. Try a different wallet.";
+  }
+  if (/"code": ?-32002|request.*already pending|already pending/i.test(s)) {
+    return "A request is already waiting in your wallet — open the extension and approve it.";
+  }
+  if (/chain|network/i.test(s)) {
+    return "Switch your wallet to the Sepolia network.";
+  }
+  return e?.message ?? String(e);
+}
+
+// eth_requestAccounts returns silently when the site was already authorized.
+// accountsChanged keeps the victim in sync the moment the user switches
+// accounts in the wallet.
 $("connect").onclick = async () => {
   try {
-    provider = new ethers.BrowserProvider(window.ethereum);
-    await provider.send("eth_requestAccounts", []);
-    account = (await provider.listAccounts())[0].address;
+    const eth = getInjected();
+    if (!eth) { $("wallet").textContent = "no wallet extension found"; return; }
+    provider = new ethers.BrowserProvider(eth);
+    const accs = await eth.request({ method: "eth_requestAccounts" });
+    account = accs[0];
     $("wallet").textContent = "connected: " + account;
     $("attack").disabled = false;
   } catch (e) {
-    $("wallet").textContent = "connect failed: " + (e.message ?? e);
+    $("wallet").textContent = friendly(e);
   }
 };
+
+window.ethereum?.on?.("accountsChanged", (accs) => {
+  if (accs?.length) {
+    account = accs[0];
+    $("wallet").textContent = "connected: " + account;
+    $("attack").disabled = false;
+  }
+});
 
 // Normal flow: backend plans the attack and returns the victim swap; the
 // victim sends it via a REGULAR wallet confirm (eth_sendTransaction — works
@@ -105,6 +161,15 @@ $("connect").onclick = async () => {
 $("attack").onclick = async () => {
   try {
     if (!provider || !account) throw new Error("connect a wallet first");
+    // Victim MUST be on Sepolia — auto-switch if not.
+    const chainId = await window.ethereum.request({ method: "eth_chainId" });
+    if (BigInt(chainId) !== BigInt(SEPOLIA_CHAIN_ID)) {
+      out("switching your wallet to Sepolia…");
+      await window.ethereum.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: "0xaa36a7" }],
+      });
+    }
     out("planning attack…");
     const prep = await api("/attack-prepare", { victimAddress: account });
     const s = prep.swap;
@@ -116,6 +181,8 @@ $("attack").onclick = async () => {
         data: s.data,
         gas: "0x55730",
         maxPriorityFeePerGas: "0x" + ethers.parseUnits(s.suggestedTipGwei, "gwei").toString(16),
+        // cap must cover tip + base fee on Sepolia's cheap blocks
+        maxFeePerGas: "0x" + ethers.parseUnits("42", "gwei").toString(16),
         type: "0x2",
     }]);
     $("victimHash").value = victimHash;
@@ -129,17 +196,25 @@ $("attack").onclick = async () => {
       if (st.seenVictim && !st.done) out("victim spotted in mempool — firing attacker pair…");
       if (st.done) {
         const res = st.outcome;
-        out(res.ok
-          ? `SANDWICH LANDED ✓ block ${res.block}\nfront:  ${res.frontHash}\nvictim: ${res.victimHash}\nback:   ${res.backHash}`
-          : "attack failed: " + (res.reason ?? "unknown") + (res.victimHash ? `\nvictim was mined: ${res.victimHash}` : ""),
-          res.ok ? "ok" : "bad");
+        if (res.ok) {
+          out(`SANDWICH LANDED ✓ block ${res.block}\nfront:  ${res.frontHash}\nvictim: ${res.victimHash}\nback:   ${res.backHash}`, "ok");
+        } else {
+          const why = res.reason?.startsWith("statuses")
+            ? "the attacker's second trade failed or missed the block this time"
+            : res.reason === "receipt timeout"
+              ? "the block took too long to confirm"
+              : res.reason === "victim swap not seen in mempool before timeout"
+                ? "the swap wasn't confirmed in time — make sure your wallet is on Sepolia and approve promptly"
+                : (res.reason ?? "unknown");
+          out(`Attack didn't land this round — ${why}.${res.victimHash ? " Your swap itself went through fine (victim tx ↗). Nothing is stuck — just click the button again to retry." : " No swap was sent. Click the button again to retry."}`, "bad");
+        }
         if (res.victimHash) $("victimHash").value = res.victimHash;
         break;
       }
       await new Promise((r) => setTimeout(r, 2000));
     }
   } catch (e) {
-    out(e?.message ?? String(e), "bad");
+    out(friendly(e), "bad");
   }
 };
 

@@ -38,7 +38,7 @@ import { detectForTxHash } from "@ancsure/detector";
 import { getSepoliaProvider, sepoliaMasterWallet } from "@ancsure/ethereum";
 import { simulateAndSerialize, verifiedLossEthWei } from "./services/simulation.js";
 import { verifyEvidence } from "./services/verification.js";
-import { authorizeClaim, getPolicy, getClaimsHistory, quotePayoutOnChain } from "./services/claims.js";
+import { authorizeClaim, getPolicy, getClaimsHistory, quotePayoutOnChain, payClaimOnChain } from "./services/claims.js";
 import {
   executeControlledSandwich,
   buildVictimSwapRequest,
@@ -55,6 +55,27 @@ const RUN_FILE = path.join(ROOT, "data", "demo", "run-latest.json");
 
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 const MAX_ADDED_WALLETS = 24; // per owner, on top of the connected wallet
+
+// Shown verbatim whenever a transaction fails the eligibility review.
+const ELIGIBILITY_HELP =
+  "Unfortunately, this transaction did not pass our eligibility review. To help you check what went wrong, please verify that:\n" +
+  "• The transaction was initiated from an eligible, covered wallet.\n" +
+  "• The exploit or attack resulted in a direct loss of funds.";
+const DUPLICATE_MSG = "This transaction has already been processed. Duplicate claims are not allowed.";
+
+/** True when a payout for this victim tx hash was already authorized. */
+function alreadyClaimed(victimTxHash: string): boolean {
+  const logPath = path.join(ROOT, "data", "demo", "claims-log.jsonl");
+  if (!fs.existsSync(logPath)) return false;
+  const h = victimTxHash.toLowerCase();
+  return fs.readFileSync(logPath, "utf8").split("\n").some((line) => {
+    try {
+      return String(JSON.parse(line).victimTxHash ?? "").toLowerCase() === h;
+    } catch {
+      return false;
+    }
+  });
+}
 
 // ------------------------------------------------- wallet book (SQLite) ------
 // Owners add wallets on the Dashboard; the owner→wallet relationship is
@@ -256,12 +277,13 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, pathna
     const body = await readBody(req);
     const hash: string = body.victimTxHash;
     if (!hash || !HASH_RE.test(hash)) throw new Error("victimTxHash must be a hex hash");
+    if (alreadyClaimed(hash)) throw new Error(DUPLICATE_MSG);
     const chain = resolveChain(body.chain);
 
     // 1) detection
     const result = await detectForTxHash(rpcUrlFor(chain), hash);
     if (result.classification !== "SANDWICH") {
-      json(res, 422, { eligible: false, reason: result.explanation ?? "not a sandwich" });
+      json(res, 422, { eligible: false, reason: ELIGIBILITY_HELP, detail: result.explanation ?? "not a sandwich" });
       return;
     }
     // 2) verified loss from the proven simulator, valued in ETH at the
@@ -285,10 +307,20 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, pathna
     if (!victimTx) throw new Error("victim tx not found");
     const claimant = victimTx.from;
     const claim = await authorizeClaim(claimant, lossRaw, hash);
+    // 5) settle — submitVerifiedClaim only RECORDS the claim; payClaim moves ETH.
+    let payoutTxHash = claim.txHash;
+    let payoutSettled = false;
+    try {
+      payoutTxHash = await payClaimOnChain(claim.claimId);
+      payoutSettled = true;
+    } catch (e) {
+      console.error("payClaim failed (claim stays authorized):", (e as Error).message);
+    }
     json(res, 200, {
       eligible: true,
       claimId: claim.claimId.toString(),
-      payoutTxHash: claim.txHash,
+      payoutTxHash,
+      payoutSettled,
       verifiedLossRaw: lossRaw.toString(),
       ratio: `${CLAIM_RATIO_NUMERATOR}/${CLAIM_RATIO_DENOMINATOR}`,
       defaultCapRaw: DEFAULT_POLICY_CAP_RAW,
@@ -357,11 +389,24 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, pathna
   }
 
   // ---------- GET /claims-history?address=0x.. --------------------------------
+  // Shows claims for the address AND every wallet in its book — the connected
+  // owner files on behalf of their protected wallets.
   if (req.method === "GET" && pathname === "/claims-history") {
     const url = new URL(req.url!, `http://localhost:${PORT}`);
     const addr = url.searchParams.get("address") ?? "";
     if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) throw new Error("address query param required");
-    json(res, 200, { claims: await getClaimsHistory(addr) });
+    const claimants = [addr.toLowerCase(), ...walletStore.list(addr.toLowerCase()).map((r) => r.walletAddress)];
+    const seen = new Set<string>();
+    const claims = (await Promise.all(claimants.map((c) => getClaimsHistory(c).catch(() => []))))
+      .flat()
+      .filter((c) => {
+        const k = (c.id || "x") + (c.victimTxHash ?? "") + c.claimant;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      })
+      .sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
+    json(res, 200, { claims });
     return;
   }
 
@@ -374,22 +419,33 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, pathna
     if (!hash || !HASH_RE.test(hash)) throw new Error("victimTxHash must be a hex hash");
     const chain = resolveChain(body.chain);
 
+    if (alreadyClaimed(hash)) {
+      json(res, 200, { eligible: false, reason: DUPLICATE_MSG, duplicate: true });
+      return;
+    }
+
     const result = await detectForTxHash(rpcUrlFor(chain), hash);
     if (result.classification !== "SANDWICH") {
-      json(res, 200, { eligible: false, classification: result.classification, reason: result.explanation ?? "not a sandwich" });
+      json(res, 200, { eligible: false, classification: result.classification, reason: ELIGIBILITY_HELP, detail: result.explanation ?? "not a sandwich" });
       return;
     }
     const report: any = await simulateAndSerialize(rpcUrlFor(chain), hash);
     const leg = report?.victims?.find((v: any) => v?.legs?.length > 0)?.legs?.[0];
     const lossRaw = verifiedLossEthWei(report) ?? 0n;
     if (lossRaw <= 0n) {
-      json(res, 200, { eligible: false, classification: "SANDWICH", reason: "simulated loss is zero" });
+      json(res, 200, { eligible: false, classification: "SANDWICH", reason: ELIGIBILITY_HELP, detail: "simulated loss is zero" });
       return;
     }
     const hashes = [result.frontRunTx!, hash, result.backRunTx!];
     const proof = await verifyEvidence(hashes, chain);
     if (proof.failures.length > 0) {
-      json(res, 502, { eligible: false, classification: "SANDWICH", reason: "proof pipeline failures", failures: proof.failures });
+      json(res, 502, {
+        eligible: false,
+        classification: "SANDWICH",
+        reason: ELIGIBILITY_HELP,
+        detail: "we couldn't verify this attack's evidence on Creditcoin — the transactions could not be proven, so no payout can be authorized",
+        failures: proof.failures,
+      });
       return;
     }
     // claimant = victim tx signer (wallet must have controlled the protected wallet)
@@ -401,8 +457,18 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, pathna
     try { payoutQuoteRaw = (await quotePayoutOnChain(claimant, lossRaw)).toString(); } catch { /* contract not configured */ }
     const policy = await getPolicy(claimant).catch(() => null);
 
+    const covered = policy?.covered === true && BigInt(payoutQuoteRaw) > 0n;
+    // The claimant is always the wallet the attack actually hit — selecting a
+    // different covered wallet in the UI cannot redirect the payout.
+    let reason = "";
+    if (!policy?.covered) {
+      reason = ELIGIBILITY_HELP;
+    } else if (BigInt(payoutQuoteRaw) <= 0n) {
+      reason = ELIGIBILITY_HELP;
+    }
     json(res, 200, {
-      eligible: policy?.covered === true && BigInt(payoutQuoteRaw) > 0n,
+      eligible: covered,
+      reason,
       classification: "SANDWICH",
       claimant,
       evidence: {

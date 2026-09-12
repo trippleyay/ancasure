@@ -43,6 +43,7 @@ const CLAIMS_ABI = [
   "function policies(address) view returns (uint96 capRaw,uint64 expiresAt,address payer)",
   "function isCovered(address user) view returns (bool)",
   "function PREMIUM_PER_WALLET() view returns (uint256)",
+  "function payClaim(uint256 id)",
   "event PolicyRegistered(address indexed wallet, address indexed payer, uint256 capRaw, uint256 expiresAt)",
   "event ClaimAuthorized(uint256 indexed id, address indexed claimant, uint256 verifiedLossRaw, uint256 payoutRaw, bytes32 victimTxHash)",
   "event ClaimPaid(uint256 indexed id, address indexed claimant, uint256 amount)",
@@ -172,15 +173,7 @@ export async function authorizeClaim(
   verifiedLossRaw: bigint,
   victimTxHash: string,
 ): Promise<{ claimId: bigint; txHash: string }> {
-  loadDotEnv();
-  const pk = process.env.AUTHORIZER_PRIVATE_KEY ?? process.env.PRIVATE_KEY;
-  if (!pk) throw new Error("AUTHORIZER_PRIVATE_KEY (or PRIVATE_KEY) is not set");
-  const d = loadDeployment();
-  const rpc = process.env.SEPOLIA_RPC_URL!;
-  if (!rpc) throw new Error("SEPOLIA_RPC_URL is not set");
-
-  const wallet = new ethers.Wallet(pk.startsWith("0x") ? pk : "0x" + pk, new ethers.JsonRpcProvider(rpc));
-  const c = new ethers.Contract(d.address, CLAIMS_ABI, wallet);
+  const c = new ethers.Contract(loadDeployment().address, CLAIMS_ABI, authorizerWallet());
   const tx = await c.submitVerifiedClaim(claimant, verifiedLossRaw, ethers.id(victimTxHash));
   const rc = await tx.wait();
   if (!rc || rc.status !== 1) throw new Error(`claim submission reverted (${rc?.hash})`);
@@ -207,4 +200,27 @@ export async function authorizeClaim(
     }) + "\n",
   );
   return { claimId: ev ? BigInt(ev.args.id) : 0n, txHash: rc.hash };
+}
+
+/** Authorizer EOA wallet (empty AUTHORIZER_PRIVATE_KEY falls back to PRIVATE_KEY). */
+function authorizerWallet(): ethers.Wallet {
+  loadDotEnv();
+  const pk = [process.env.AUTHORIZER_PRIVATE_KEY, process.env.PRIVATE_KEY]
+    .find((k) => k && k.trim());
+  if (!pk) throw new Error("AUTHORIZER_PRIVATE_KEY (or PRIVATE_KEY) is not set");
+  const rpc = process.env.SEPOLIA_RPC_URL;
+  if (!rpc) throw new Error("SEPOLIA_RPC_URL is not set");
+  return new ethers.Wallet(pk.startsWith("0x") ? pk : "0x" + pk, new ethers.JsonRpcProvider(rpc));
+}
+
+/**
+ * Settles an authorized claim: transfers the payout to the claimant.
+ * submitVerifiedClaim only RECORDS the claim — this is the tx that pays.
+ */
+export async function payClaimOnChain(claimId: bigint): Promise<string> {
+  const c = new ethers.Contract(loadDeployment().address, CLAIMS_ABI, authorizerWallet());
+  const tx = await c.payClaim(claimId);
+  const rc = await tx.wait();
+  if (!rc || rc.status !== 1) throw new Error(`payout reverted (${rc?.hash})`);
+  return rc.hash;
 }

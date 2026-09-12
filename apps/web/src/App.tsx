@@ -34,6 +34,16 @@ function Sidebar() {
           <div className="addr">{address ? shortAddr(address) : "Not connected"}</div>
           <div className="tag">{address ? "Connected wallet" : "Click Connect"}</div>
         </div>
+        <Link to="/" title="Back to landing page" style={{ marginLeft: "auto", opacity: 0.65, display: "flex", padding: 6, borderRadius: 8, cursor: "pointer" }}
+          onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+          onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.65")}>
+          {/* door-out / exit */}
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 18, height: 18 }}>
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+            <path d="M16 17l5-5-5-5" />
+            <path d="M21 12H9" />
+          </svg>
+        </Link>
       </div>
     </aside>
   );

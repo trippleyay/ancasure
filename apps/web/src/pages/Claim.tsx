@@ -86,8 +86,8 @@ export default function Claim() {
 
       <div style={{ marginTop: 24 }}>
         {loading && <div className="loading-card"><div className="spinner" /></div>}
-        {check && !loading && <CheckResult check={check} onClaim={claim} claiming={claiming} />}
-        {claimed && <ClaimedView claimed={claimed} />}
+        {claimed && <ClaimedView claimed={claimed} onNewClaim={() => { setClaimed(null); setCheck(null); setHash(""); }} />}
+        {!claimed && check && !loading && <CheckResult check={check} onClaim={claim} claiming={claiming} />}
       </div>
     </ConnectGate>
   );
@@ -95,11 +95,17 @@ export default function Claim() {
 
 function CheckResult({ check, onClaim, claiming }: { check: Check; onClaim: () => void; claiming: boolean }) {
   if (!check.eligible) {
+    // reason arrives as intro + "\n• " bullet lines from the API
+    const [intro, ...checks] = (check.reason || "No qualifying sandwich attack was verified for this transaction.").split("\n• ");
     return (
       <div className="result-card">
-        <div className="result-icon bad"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg></div>
-        <h2>Not qualifying for payout</h2>
-        <p>{check.reason || "No qualifying sandwich attack was verified for this transaction."}</p>
+        <h2>Claim Ineligible</h2>
+        <p style={{ margin: 0 }}>{intro}</p>
+        {checks.length > 0 && (
+          <ul style={{ margin: "10px auto 0", paddingLeft: 22, textAlign: "left", maxWidth: 480, listStyle: "disc", color: "inherit" }}>
+            {checks.map((c, i) => <li key={i} style={{ marginBottom: 5, fontFamily: "inherit", fontSize: "inherit", lineHeight: "inherit", color: "inherit", opacity: 0.9 }}>{c}</li>)}
+          </ul>
+        )}
       </div>
     );
   }
@@ -124,8 +130,8 @@ function CheckResult({ check, onClaim, claiming }: { check: Check; onClaim: () =
   );
 }
 
-function ClaimedView({ claimed }: { claimed: any }) {
-  if (claimed.error) return <div className="result-card"><h2>Claim failed</h2><p>{claimed.error}</p></div>;
+function ClaimedView({ claimed, onNewClaim }: { claimed: any; onNewClaim: () => void }) {
+  if (claimed.error) return <div className="result-card"><h2>Claim failed</h2><p style={{ whiteSpace: "pre-line" }}>{claimed.error}</p></div>;
   return (
     <div className="result-card">
       <div className="success-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12l4 4L20 6"/></svg></div>
@@ -133,8 +139,10 @@ function ClaimedView({ claimed }: { claimed: any }) {
       <div className="evidence-rows" style={{ textAlign: "left", maxWidth: 460, margin: "20px auto 0" }}>
         <div className="evidence-row"><span className="lbl">Verified loss</span><span className="val">{fmtEther(claimed.verifiedLossRaw)} ETH</span></div>
         <div className="evidence-row"><span className="lbl">Claim</span><span className="val">#{claimed.claimId}</span></div>
-        {claimed.payoutTxHash && <div className="evidence-row"><span className="lbl">Transaction</span><span className="val"><a className="row-action" target="_blank" rel="noreferrer" href={`https://sepolia.etherscan.io/tx/${claimed.payoutTxHash}`}>{shortAddr(claimed.payoutTxHash)} ↗</a></span></div>}
+        {claimed.payoutSettled === false && <div className="evidence-row"><span className="lbl">Status</span><span className="val">Authorized — payout pending</span></div>}
+        {claimed.payoutTxHash && <div className="evidence-row"><span className="lbl">Payout</span><span className="val"><a className="row-action" target="_blank" rel="noreferrer" href={`https://sepolia.etherscan.io/tx/${claimed.payoutTxHash}`}>{shortAddr(claimed.payoutTxHash)} ↗</a></span></div>}
       </div>
+      <button className="btn btn-block" style={{ marginTop: 20 }} onClick={onNewClaim}>File another claim</button>
     </div>
   );
 }

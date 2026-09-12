@@ -7,6 +7,9 @@
  *   POST /verify            {chain, txHashes[]}         Creditcoin/Attestcoin proofs
  *   POST /check-eligibility {victimTxHash}              read-only claim check (no mutation)
  *   GET  /policies          ?addresses=0x..,..           on-chain protection state
+ *   GET  /wallets           ?owner=0x..                  stored wallet book + live coverage
+ *   POST /wallets           {owner, address}             add wallet to owner's book
+ *   DELETE /wallets         {owner, address}             remove an unprotected added wallet
  *   GET  /claims-history    ?address=0x..                ClaimAuthorized/Paid events
  *   POST  /swap-request     {judgeAddress}              unsigned victim swap for judge signing
  *   POST  /execute-sandwich {signedVictimRawTx}         controlled trio around judge's tx
@@ -42,10 +45,62 @@ import { loadArtifacts } from "../../../demo/lib.js";
 const PORT = Number(process.env.PORT ?? 3000);
 const ROOT = path.resolve(__dirname, "..", "..", "..");
 const RUN_FILE = path.join(ROOT, "data", "demo", "run-latest.json");
+const WALLET_FILE = path.join(ROOT, "data", "wallets.json");
+
+const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
+const MAX_ADDED_WALLETS = 24; // per owner, on top of the connected wallet
+
+// ------------------------------------------------- wallet book (data file) ---
+// Owners add wallets on the Dashboard; the list is persisted server-side so it
+// survives browsers/devices. Paid/protected state is NOT stored here — it is
+// joined live from the on-chain contract (getPolicy) so it can never go stale.
+
+interface WalletRow { address: string; addedAt: string }
+type WalletBookData = Record<string, WalletRow[]>;
+
+function loadWalletBook(): WalletBookData {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(WALLET_FILE, "utf8"));
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveWalletBook(book: WalletBookData): void {
+  fs.mkdirSync(path.dirname(WALLET_FILE), { recursive: true });
+  fs.writeFileSync(WALLET_FILE, JSON.stringify(book, null, 2));
+}
+
+/** Owner's wallet book with live on-chain protection state joined in. */
+async function walletBookResponse(ownerLc: string) {
+  const book = loadWalletBook();
+  const rows = (book[ownerLc] ?? []).filter((r) => ADDR_RE.test(r.address));
+  const wallets = [];
+  for (const a of [...new Set([ownerLc, ...rows.map((r) => r.address)])].slice(0, 25)) {
+    const row = rows.find((r) => r.address === a);
+    let policy = { address: a, covered: false, capRaw: "0", expiresAt: 0, payer: "" };
+    try { policy = await getPolicy(a); } catch { /* RPC down / not deployed yet */ }
+    wallets.push({
+      ...policy,
+      addedAt: row?.addedAt ?? null,
+      // An added, unprotected wallet may be removed; paid coverage must run out.
+      removable: a !== ownerLc && !policy.covered,
+    });
+  }
+  return { owner: ownerLc, wallets };
+}
 
 // ---------------------------------------------------------------- helpers ---
 
+function cors(res: http.ServerResponse): void {
+  res.setHeader("access-control-allow-origin", "*");
+  res.setHeader("access-control-allow-headers", "content-type");
+  res.setHeader("access-control-allow-methods", "GET, POST, DELETE, OPTIONS");
+}
+
 function json(res: http.ServerResponse, status: number, body: unknown): void {
+  cors(res);
   const text = JSON.stringify(body, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2);
   res.writeHead(status, { "content-type": "application/json" });
   res.end(text);
@@ -80,6 +135,12 @@ const HASH_RE = /^0x[0-9a-fA-F]{64}$/;
 // ------------------------------------------------------------------ router ---
 
 const server = http.createServer(async (req, res) => {
+  cors(res);
+  // CORS preflight
+  if (req.method === "OPTIONS") {
+    res.writeHead(204).end();
+    return;
+  }
   try {
     const url = new URL(req.url!, `http://localhost:${PORT}`);
     await route(req, res, url.pathname);
@@ -236,6 +297,57 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, pathna
       catch (e) { policies.push({ address: a, covered: false, capRaw: "0", expiresAt: 0, payer: "", error: (e as Error).message }); }
     }
     json(res, 200, { policies });
+    return;
+  }
+
+  // ---------- GET /wallets?owner=0x.. -----------------------------------------
+  // The owner's stored wallet list with live on-chain protection state joined.
+  if (req.method === "GET" && pathname === "/wallets") {
+    const url = new URL(req.url!, `http://localhost:${PORT}`);
+    const owner = (url.searchParams.get("owner") ?? "").trim().toLowerCase();
+    if (!ADDR_RE.test(owner)) throw new Error("owner must be a 0x.. address");
+    json(res, 200, await walletBookResponse(owner));
+    return;
+  }
+
+  // ---------- POST /wallets {owner, address} -----------------------------------
+  // Add a wallet to the owner's list (deduped; the connected wallet is implicit).
+  if (req.method === "POST" && pathname === "/wallets") {
+    const body = await readBody(req);
+    const owner = String(body.owner ?? "").trim().toLowerCase();
+    const address = String(body.address ?? "").trim().toLowerCase();
+    if (!ADDR_RE.test(owner)) throw new Error("owner must be a 0x.. address");
+    if (!ADDR_RE.test(address)) throw new Error("address must be a 0x.. wallet address");
+    if (address === owner) throw new Error("the connected wallet is already in your list");
+    const book = loadWalletBook();
+    const rows = (book[owner] ?? []).filter((r) => ADDR_RE.test(r.address));
+    if (rows.some((r) => r.address === address)) throw new Error("that wallet is already in your list");
+    if (rows.length >= MAX_ADDED_WALLETS) throw new Error(`wallet list is full (max ${MAX_ADDED_WALLETS})`);
+    book[owner] = [...rows, { address, addedAt: new Date().toISOString() }];
+    saveWalletBook(book);
+    json(res, 200, await walletBookResponse(owner));
+    return;
+  }
+
+  // ---------- DELETE /wallets {owner, address} ---------------------------------
+  // Remove a wallet — allowed ONLY for unprotected (not covered) added wallets;
+  // wallets with paid protection and the connected wallet itself are rejected.
+  if (req.method === "DELETE" && pathname === "/wallets") {
+    const body = await readBody(req);
+    const owner = String(body.owner ?? "").trim().toLowerCase();
+    const address = String(body.address ?? "").trim().toLowerCase();
+    if (!ADDR_RE.test(owner)) throw new Error("owner must be a 0x.. address");
+    if (!ADDR_RE.test(address)) throw new Error("address must be a 0x.. wallet address");
+    if (address === owner) throw new Error("the connected wallet cannot be removed");
+    const book = loadWalletBook();
+    const rows = (book[owner] ?? []).filter((r) => ADDR_RE.test(r.address));
+    if (!rows.some((r) => r.address === address)) throw new Error("that wallet is not in your list");
+    let policy: Awaited<ReturnType<typeof getPolicy>> | null = null;
+    try { policy = await getPolicy(address); } catch { /* RPC down — treat as unprotected */ }
+    if (policy?.covered) throw new Error("that wallet has active protection and cannot be removed");
+    book[owner] = rows.filter((r) => r.address !== address);
+    saveWalletBook(book);
+    json(res, 200, await walletBookResponse(owner));
     return;
   }
 

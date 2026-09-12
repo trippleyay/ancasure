@@ -2,9 +2,29 @@
   "name": "@ancsure/web",
   "version": "0.1.0",
   "private": true,
-  "description": "AncaSure minimal judge-facing frontend (static, no build step)",
+  "description": "AncaSure web app (React + wagmi + RainbowKit)",
   "license": "MIT",
   "scripts": {
-    "start": "npx --yes serve -l 5173 public"
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json && vite build",
+    "preview": "vite preview",
+    "serve:static": "npx --yes serve -l 5174 public"
+  },
+  "dependencies": {
+    "@rainbow-me/rainbowkit": "^2.2.11",
+    "@tanstack/react-query": "^5",
+    "lottie-react": "^2",
+    "react": "^18",
+    "react-dom": "^18",
+    "react-router-dom": "^6",
+    "viem": "^2",
+    "wagmi": "^3"
+  },
+  "devDependencies": {
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "@vitejs/plugin-react": "^4",
+    "typescript": "^5",
+    "vite": "^5"
   }
 }

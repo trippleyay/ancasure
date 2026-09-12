@@ -42,7 +42,7 @@ export const VICTIM_FUNDING = ethers.parseEther("0.01"); // gas + trade headroom
  */
 export type SizingProfile = "gentle" | "moderate" | "brutal";
 export function getSizingProfile(): SizingProfile {
-  const p = (process.env.SANDWICH_PROFILE ?? "moderate").toLowerCase();
+  const p = (process.env.SANDWICH_PROFILE ?? "gentle").toLowerCase();
   return p === "gentle" ? "gentle" : p === "brutal" ? "brutal" : "moderate";
 }
 export function computeAttackSizes(reserveWeth: bigint, profile: SizingProfile): { front: bigint; victim: bigint } {

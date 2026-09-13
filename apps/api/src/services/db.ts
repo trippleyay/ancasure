@@ -31,18 +31,18 @@ export interface Db {
 class TursoDb implements Db {
   constructor(private client: TursoClient) {}
   async all<T>(sql: string, ...args: any[]): Promise<T[]> {
-    return (await this.client.execute({ sql, args: args as any })).rows as T[];
+    return (await this.client.execute({ sql, args: args.length ? args : [] })).rows as T[];
   }
   async get<T>(sql: string, ...args: any[]): Promise<T | undefined> {
-    const r = await this.client.execute({ sql, args: args as any });
+    const r = await this.client.execute({ sql, args: args.length ? args : [] });
     return r.rows[0] as T | undefined;
   }
   async run(sql: string, ...args: any[]) {
-    const r = await this.client.execute({ sql, args: args as any });
+    const r = await this.client.execute({ sql, args: args.length ? args : [] });
     return { changes: Number(r.rowsAffected ?? 0), lastInsertRowid: BigInt(r.lastInsertRowid ?? 0) };
   }
   async exec(sql: string) {
-    await this.client.execute({ sql });
+    await this.client.execute({ sql, args: [] });
   }
   close() {
     void this.client.close();

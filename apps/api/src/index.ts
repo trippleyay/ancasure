@@ -59,7 +59,7 @@ const MAX_ADDED_WALLETS = 24; // per owner, on top of the connected wallet
 
 // Shown verbatim whenever a transaction fails the eligibility review.
 const ELIGIBILITY_HELP =
-  "This transaction didn't meet our eligibility criteria:\n" +
+  "Unfortunately, this transaction did not pass our eligibility review. To help you check what went wrong, please verify that:\n" +
   "• The transaction was initiated from an eligible, covered wallet.\n" +
   "• The exploit or attack resulted in a direct loss of funds.";
 const DUPLICATE_MSG = "This transaction has already been processed. Duplicate claims are not allowed.";

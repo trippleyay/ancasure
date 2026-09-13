@@ -100,7 +100,7 @@ function CheckResult({ check, onClaim, claiming }: { check: Check; onClaim: () =
     return (
       <div className="result-card">
         <h2>Claim Ineligible</h2>
-        <p>{intro}</p>
+        <p style={{ whiteSpace: "nowrap", maxWidth: "none" }}>{intro}</p>
         {checks.length > 0 && (
           <ul style={{ margin: "10px auto 0", paddingLeft: 22, textAlign: "left", maxWidth: 480, listStyle: "disc", color: "inherit" }}>
             {checks.map((c, i) => <li key={i} style={{ marginBottom: 5, fontFamily: "inherit", fontSize: "inherit", lineHeight: "inherit", color: "inherit", opacity: 0.9 }}>{c}</li>)}

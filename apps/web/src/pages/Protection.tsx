@@ -107,7 +107,9 @@ export default function Protection() {
           {/* TODO(pre-deploy): remove debug error display before hosting. */}
           {writeError && (
             <div className="empty-note" style={{ color: "var(--red)" }}>
-              {writeError.message.slice(0, 200)}
+              {writeError.message.includes("User rejected")
+                ? "Transaction cancelled."
+                : writeError.message.slice(0, 200)}
             </div>
           )}
           {confirmed && (

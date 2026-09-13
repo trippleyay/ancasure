@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: ancasure-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: "3000"
+      - key: NODE_ENV
+        value: production
+      - key: SEPOLIA_RPC_URL
+        sync: false
+      - key: PRIVATE_KEY
+        sync: false
+      - key: AUTHORIZER_PRIVATE_KEY
+        sync: false
+      - key: CLAIMS_CONTRACT_ADDRESS
+        sync: false
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
+      - key: CREDITCOIN_RPC_URL
+        value: https://rpc.cc3-testnet.creditcoin.network
+      - key: ATTESTCOIN_PROVER_URL
+        value: https://prover.cc3-testnet.creditcoin.network

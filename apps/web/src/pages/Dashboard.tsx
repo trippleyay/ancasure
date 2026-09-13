@@ -175,7 +175,10 @@ export default function Dashboard() {
       {showPromo && (
         <div className="promo-bar">
           <span>
-            Try MEV Creator
+            simulate a live sandwich attack on Sepolia testnet.{" "}
+            <a href="https://ancasure.onrender.com/mev-demo" target="_blank" rel="noreferrer">
+              Open MEV Creator →
+            </a>
           </span>
           <button className="promo-dismiss" onClick={() => setShowPromo(false)} aria-label="Dismiss">
             ✕

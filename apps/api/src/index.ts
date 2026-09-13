@@ -493,6 +493,20 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, pathna
     return;
   }
 
+  // ---------- Static assets for /mev-demo (favicon, etc.) ---------------------
+  if (req.method === "GET" && (pathname === "/mevcreator.ico" || pathname === "/mevcreator.png")) {
+    const file = path.join(ROOT, "apps", "mev-demo", pathname.slice(1));
+    if (fs.existsSync(file)) {
+      const ct = pathname.endsWith(".png") ? "image/png" : "image/x-icon";
+      res.writeHead(200, { "content-type": ct });
+      res.end(fs.readFileSync(file));
+    } else {
+      res.writeHead(404);
+      res.end("not found");
+    }
+    return;
+  }
+
   // ---------- GET /mev-demo — standalone MEV Creator frontend ------------------
   // Static single-file app (apps/mev-demo/index.html): anyone connects a wallet
   // (WalletConnect QR or injected) and fires a controlled sandwich on Sepolia.

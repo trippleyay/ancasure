@@ -42,12 +42,10 @@ export default function Landing() {
   const heroCtaRef = useRef<HTMLDivElement | null>(null);
   const [heroCtaVisible, setHeroCtaVisible] = useState(true);
 
-  // Slow the background animation down once the player is ready.
   useEffect(() => {
     lottieRef.current?.setSpeed(0.25);
   }, []);
 
-  // The nav "Get covered" button only appears once the hero CTA is out of view.
   useEffect(() => {
     const el = heroCtaRef.current;
     if (!el) return;
@@ -85,35 +83,36 @@ export default function Landing() {
         <div className="wrap hero-inner">
           <h1>Trade normally.<br />We've got you if it goes <em>sideways</em>.</h1>
           <p className="sub">
-            AncaSure covers your wallet against verifiable sandwich attacks. Trade on your
-            usual DEX, and if a verified attack causes you a loss, you get paid.
+            AncaSure covers your wallet against sandwich attacks. Trade on your usual DEX and get paid if you suffer a verified loss.
           </p>
           <div className="hero-ctas" ref={heroCtaRef}>
             <GetCovered big />
             <a href="#how" className="btn btn-ghost">See how it works</a>
           </div>
-          <p className="hero-note">No auto-renewal. 30-day coverage periods. Cancel anytime by simply not renewing.</p>
+          <p className="hero-note">No auto-renewal. Each payment covers 30 days. Cancel anytime by simply not renewing.</p>
         </div>
       </section>
-<section id="how">
+
+      <section id="how">
         <div className="wrap">
           <div className="section-head">
-            <div className="eyebrow">How it works</div>
-            <h2>From wallet to payout, five steps</h2>
-            <p>You keep trading exactly the way you already do. AncaSure watches for the one thing that matters: whether a verifiable sandwich attack cost you money.</p>
+            <div className="eyebrow">How coverage works</div>
+            <h2>Five simple steps. Claim when something goes wrong.</h2>
           </div>
           <div className="flow">
             {[
-              ["Get covered", "Connect a wallet, select which addresses to protect, and pay for 30 days of coverage.", ["M4 12l4 4L20 6"]],
-              ["Trade normally", "Use your usual DEX. Nothing changes about how you trade.", ["M3 12h4l3 8 4-16 3 8h4"]],
-              ["Attack happens", "A sandwich attack hits your trade on an external EVM chain.", ["M12 2l3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z"]],
-              ["We verify", "Creditcoin's Attestcoin infrastructure cryptographically proves the attack.", ["M3 3v18h18", "M7 15l4-6 4 3 5-8"]],
-              ["You get paid", "70% of your verified loss, up to your policy cap, paid automatically.", ["M12 1v22", "M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"]],
-            ].map(([h, p, d]) => (
-              <div className="flow-step" key={h as string}>
-                <div className="flow-icon"><Icon d={d as string[]} /></div>
-                <h4>{h}</h4>
-                <p>{p}</p>
+              ["I", "Get covered", "Connect a wallet, choose the addresses you want to protect, and pay for 30 days of coverage."],
+              ["II", "Trade normally", "Use your usual DEX. AncaSure does not change how you trade."],
+              ["III", "A sandwich attack happens", "A qualifying sandwich attack affects a covered trade."],
+              ["IV", "We check the claim", "AncaSure verifies the external transaction evidence and calculates the loss caused by the attack."],
+              ["V", "Claim your loss", "If the claim meets the coverage rules, you can claim 70% of the verified loss, up to the policy cap."],
+            ].map(([num, title, desc]) => (
+              <div className="flow-step" key={num}>
+                <div className="flow-num-wrap">
+                  <span className="flow-num">{num}</span>
+                </div>
+                <h4>{title}</h4>
+                <p>{desc}</p>
               </div>
             ))}
           </div>
@@ -124,16 +123,15 @@ export default function Landing() {
         <div className="wrap">
           <div className="section-head">
             <div className="eyebrow">Coverage</div>
-            <h2>Simple, transparent protection</h2>
-            <p>One flat premium per wallet. One coverage period. One payout formula. No fine print.</p>
+            <h2>Clear coverage. Simple claim rules.</h2>
           </div>
           <div className="cards-grid">
             {[
-              ["Register & protect", "Add any wallet you trade from and pay a flat premium per wallet for 30 days of coverage.", ["M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"]],
-              ["Verified loss", "If sandwiched, the counterfactual output is reconstructed exactly and compared with your real execution.", ["M3 3v18h18", "M7 15l4-6 4 3 5-8"]],
-              ["70% payout", "The payout is 70% of the verified loss, capped by your policy cap.", ["M12 1v22", "M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"]],
+              ["Protect your wallets", "Add the wallets you trade from and pay once for 30 days of coverage.", ["M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"]],
+              ["Verified loss", "AncaSure compares your real execution with what the trade would have returned without the sandwich attack.", ["M3 3v18h18", "M7 15l4-6 4 3 5-8"]],
+              ["70% coverage", "A qualifying claim covers 70% of the verified loss, subject to the policy cap.", ["M12 1v22", "M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"]],
             ].map(([h, p, d]) => (
-              <div className="glass-card" key={h as string}>
+              <div className="glass-card centered" key={h as string}>
                 <div className="card-icon" style={{ background: "var(--blue-tint)" }}>
                   <Icon d={d as string[]} />
                 </div>
@@ -145,24 +143,22 @@ export default function Landing() {
         </div>
       </section>
 
-
-<section id="why">
+      <section id="why">
         <div className="wrap">
           <div className="section-head">
             <div className="eyebrow">Why AncaSure</div>
-            <h2>MEV protection you don't have to think about</h2>
-            <p>We don't prevent attacks — we make sure they can't hurt you financially.</p>
+            <h2>Insurance for the trades you already make</h2>
           </div>
           <div className="why-grid">
             {[
-              ["Retroactive, not preventive", "No proxies, no wrapped tokens, no trading restrictions. You keep full custody and trade exactly as before."],
-              ["Cryptographic verification", "Every claim is backed by proof verified on Creditcoin — not by our word."],
-              ["Counterfactual precision", "We reconstruct exactly what your trade would have returned without the attack, using the pool's own state."],
-              ["Payout you can audit", "The verified loss, the cap, and the payout formula are all on-chain and deterministic."],
+              ["Trade the way you already do", "No special trading setup or DEX restriction is required for the insurance product."],
+              ["Claims are independently checked", "Creditcoin's Attestcoin infrastructure verifies the external-chain transaction evidence used to assess a claim."],
+              ["We measure the actual loss", "AncaSure reconstructs what the trade would have returned without the front-run and compares it with the real execution."],
+              ["Know how your claim was calculated", "The evidence, loss calculation, payout percentage, and policy cap are explicit rather than hidden behind a manual decision."],
             ].map(([h, p]) => (
               <div className="why-card" key={h}>
-                <div className="why-icon"><Icon d={["M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"]} color="#0A5CFF" /></div>
-                <div><h4>{h}</h4><p>{p}</p></div>
+                <h4>{h}</h4>
+                <p>{p}</p>
               </div>
             ))}
           </div>
@@ -174,23 +170,22 @@ export default function Landing() {
           <div className="verify-wrap">
             <div className="verify-copy">
               <div className="eyebrow">Verification</div>
-              <h2>Independently proven, before any payout</h2>
-              <p>The attacker's front-run, your victim transaction, and the back-run are each cryptographically verified on Creditcoin before a claim is eligible.</p>
-              <p>The verified loss is then computed deterministically from pool state — never from user input.</p>
+              <h2>Evidence checked before a claim is approved</h2>
+              <p>The attacker's front-run, your transaction, and the back-run are each verified through Creditcoin's Attestcoin infrastructure before a claim can proceed.</p>
+              <p>AncaSure then calculates the verified loss from pool state. Insurance policy state, claim rules, and payout are handled by AncaSure's claims contract.</p>
             </div>
             <div className="verify-chain">
               {[
-                ["Front-run proof", "Attacker's opening transaction"],
-                ["Victim transaction", "Your swap, with full receipt"],
-                ["Back-run proof", "Attacker's closing transaction"],
-                ["Counterfactual", "What you would have received"],
-              ].map(([label, desc], i) => (
-                <div key={label}>
+                ["External chain", "Your trade happens on the DEX and chain you already use.", ["M3 3h18v18H3z"]],
+                ["Creditcoin/Attestcoin", "Transaction evidence is independently verified before a claim can proceed.", ["M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"]],
+                ["AncaSure", "Verified loss is calculated and your payout is issued.", ["M20 6L9 17l-5-5"]],
+              ].map(([label, desc, d], i) => (
+                <div key={label as string}>
                   <div className="chain-node">
-                    <div className="dot"><Icon d={["M3 3h18v18H3z"]} color="#0A5CFF" /></div>
+                    <div className="dot"><Icon d={d as string[]} color="#0A5CFF" /></div>
                     <div><div className="label">{label}</div><div className="desc">{desc}</div></div>
                   </div>
-                  {i < 3 && <div className="chain-line" />}
+                  {i < 2 && <div className="chain-line" />}
                 </div>
               ))}
             </div>
@@ -201,8 +196,8 @@ export default function Landing() {
       <section>
         <div className="wrap">
           <div className="final-cta">
-            <h2>Ready to trade with a safety net?</h2>
-            <p>Coverage takes minutes to set up and protects every trade you make for the next 30 days.</p>
+            <h2>Trade with coverage in place</h2>
+            <p>Set up 30 days of coverage for the wallets you trade from. If a qualifying sandwich attack causes a covered loss, AncaSure gives you a clear path to a claim.</p>
             <div style={{ display: "inline-flex" }}><GetCovered /></div>
           </div>
         </div>
@@ -213,15 +208,14 @@ export default function Landing() {
           <div className="footer-top">
             <div className="footer-brand">
               <a href="#top" className="logo"><Logo />AncaSure</a>
-              <p>Retroactive insurance against verified sandwich-attack losses. Settled via Creditcoin.</p>
+              <p>Insurance for losses caused by verified sandwich attacks.</p>
+              <p className="footer-brand-sub">AncaSure checks the external transaction evidence before a claim is approved.</p>
             </div>
             <div className="footer-col"><h5>Product</h5><ul><li><a href="#how">How it works</a></li><li><a href="#coverage">Coverage</a></li><li><a href="#verify">Verification</a></li></ul></div>
-            <div className="footer-col"><h5>Learn</h5><ul><li><a href="#why">Why AncaSure</a></li><li><a href="#coverage">Policy cap</a></li><li><a href="#how">Claim rules</a></li></ul></div>
-            <div className="footer-col"><h5>Legal</h5><ul><li><a href="#verify">Terms</a></li><li><a href="#coverage">Privacy</a></li></ul></div>
+            <div className="footer-col"><h5>Legal</h5><ul><li><a href="/terms">Terms</a></li><li><a href="/privacy">Privacy</a></li></ul></div>
           </div>
           <div className="footer-bottom">
-            <div>© 2026 AncaSure. All rights reserved.</div>
-            <div className="footer-legal"><a href="#how">Terms</a><a href="#coverage">Privacy</a></div>
+            <div>&copy; 2026 AncaSure. All rights reserved.</div>
           </div>
         </div>
       </footer>

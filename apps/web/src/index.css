@@ -118,20 +118,21 @@ nav.links a:hover{color:var(--ink);}
 .section-head p{color:var(--ink-soft);font-size:16.5px;line-height:1.7;}
 .cards-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:28px;margin-bottom:120px;}
 .glass-card{background:var(--glass-bg);border:1px solid var(--glass-border);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border-radius:var(--radius-lg);padding:38px 32px;box-shadow:var(--shadow-soft);}
+.glass-card.centered{text-align:center;}
+.glass-card.centered .card-icon{margin:0 auto;}
 .glass-card h4{font-family:'Fraunces',serif;font-size:22px;margin:18px 0 12px;}
 .glass-card p{color:var(--ink-soft);font-size:14.5px;line-height:1.65;}
 .card-icon{width:48px;height:48px;border-radius:14px;display:flex;align-items:center;justify-content:center;}
 .card-icon svg{width:24px;height:24px;}
-.flow{display:grid;grid-template-columns:repeat(5,1fr);gap:24px;margin-bottom:120px;}
-.flow-step{text-align:center;}
-.flow-icon{width:64px;height:64px;border-radius:50%;background:#fff;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;margin:0 auto 18px;box-shadow:var(--shadow-soft);}
-.flow-icon svg{width:26px;height:26px;}
+.flow{display:grid;grid-template-columns:repeat(5,1fr);gap:24px;margin-bottom:120px;position:relative;}
+.flow::before{content:'';position:absolute;top:22px;left:12%;right:12%;border-top:2px dashed var(--blue-tint);z-index:0;}
+.flow-step{text-align:center;position:relative;z-index:1;}
+.flow-num-wrap{margin:0 auto 18px;display:flex;align-items:center;justify-content:center;}
+.flow-num{font-family:'Fraunces',serif;font-size:28px;font-weight:700;color:var(--blue);line-height:1;background:var(--bg);padding:8px 14px;}
 .flow-step h4{font-family:'Fraunces',serif;font-size:17px;margin-bottom:8px;}
 .flow-step p{color:var(--ink-soft);font-size:13.5px;line-height:1.6;}
 .why-grid{display:grid;grid-template-columns:1fr 1fr;gap:40px 60px;margin-bottom:120px;}
-.why-card{display:flex;gap:18px;}
-.why-icon{width:46px;height:46px;border-radius:12px;background:var(--blue-tint);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
-.why-icon svg{width:24px;height:24px;}
+.why-card{display:block;}
 .why-card h4{font-family:'Fraunces',serif;font-size:20px;margin-bottom:10px;}
 .why-card p{color:var(--ink-soft);font-size:14.5px;line-height:1.65;}
 .verify-wrap{display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:center;margin-bottom:120px;}
@@ -150,9 +151,10 @@ nav.links a:hover{color:var(--ink);}
 .final-cta .btn-primary{background:#fff;color:var(--blue-deep);box-shadow:0 14px 30px -10px rgba(0,0,0,0.25);}
 .final-cta .btn-primary:hover{background:var(--bg-alt);}
 footer{padding:80px 0 40px;border-top:1px solid var(--line);}
-.footer-top{display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:40px;margin-bottom:60px;}
+.footer-top{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:40px;margin-bottom:60px;}
 .footer-brand .logo{padding-left:0;margin-bottom:14px;}
 .footer-brand p{color:var(--ink-soft);font-size:14px;max-width:280px;line-height:1.6;}
+.footer-brand-sub{color:var(--ink-soft);font-size:13px;margin-top:6px;max-width:280px;line-height:1.6;}
 .footer-col h5{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink-soft);margin-bottom:18px;}
 
 /* PROTECTION */
@@ -255,5 +257,17 @@ footer{padding:80px 0 40px;border-top:1px solid var(--line);}
 .side-wallet .tag{font-size:11.5px;color:var(--ink-soft);}
 main{padding:40px 48px 80px;}
 .page-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:34px;flex-wrap:wrap;gap:16px;}
+/* SCROLL OFFSET for fixed header */
+section[id]{scroll-margin-top:90px;}
+
+/* LEGAL PAGES */
+.legal-page{padding:120px 0 80px;max-width:760px;margin:0 auto;}
+.legal-page h1{font-family:'Fraunces',serif;font-size:clamp(32px,4.5vw,48px);margin-bottom:12px;}
+.legal-page .legal-date{font-size:14px;color:var(--ink-soft);margin-bottom:36px;}
+.legal-page h2{font-family:'Fraunces',serif;font-size:22px;margin:36px 0 12px;}
+.legal-page h3{font-family:'Fraunces',serif;font-size:18px;margin:28px 0 10px;}
+.legal-page p{color:var(--ink-soft);font-size:15px;line-height:1.7;margin-bottom:14px;}
+.legal-page ul{list-style:disc;padding-left:24px;margin-bottom:14px;}
+.legal-page li{color:var(--ink-soft);font-size:15px;line-height:1.7;margin-bottom:6px;}
 .page-head h1{font-size:32px;}
 .page-head p{color:var(--ink-soft);font-size:14.5px;margin-top:4px;}

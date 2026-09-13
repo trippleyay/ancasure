@@ -38,7 +38,7 @@ import { detectForTxHash } from "@ancsure/detector";
 import { getSepoliaProvider, sepoliaMasterWallet } from "@ancsure/ethereum";
 import { simulateAndSerialize, verifiedLossEthWei } from "./services/simulation.js";
 import { verifyEvidence } from "./services/verification.js";
-import { authorizeClaim, getPolicy, getClaimsHistory, quotePayoutOnChain, payClaimOnChain } from "./services/claims.js";
+import { authorizeClaim, getPolicy, getClaimsHistory, quotePayoutOnChain, payClaimOnChain, recordPayout } from "./services/claims.js";
 import {
   executeControlledSandwich,
   buildVictimSwapRequest,
@@ -322,6 +322,7 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, pathna
     try {
       payoutTxHash = await payClaimOnChain(claim.claimId);
       payoutSettled = true;
+      if (claim.claimId) recordPayout(claim.claimId, payoutTxHash);
     } catch (e) {
       console.error("payClaim failed (claim stays authorized):", (e as Error).message);
     }

@@ -103,8 +103,27 @@ export interface HistoryEntry {
   amountRaw: string; // payoutRaw (authorized) or amount (paid)
   verifiedLossRaw?: string;
   victimTxHash?: string; // bytes32 → tx-hash-shaped hex
-  txHash?: string; // ethereum tx that emitted the event
+  txHash?: string; // eth tx that RECORDED the claim (submitVerifiedClaim)
+  payoutTxHash?: string; // eth tx that PAID the claimant (payClaim)
   blockNumber: number;
+}
+
+const CLAIMS_LOG_PATH = path.join(ROOT, "data", "demo", "claims-log.jsonl");
+
+/** Persist the payout tx hash onto the claim's log line (after payClaim settles). */
+export function recordPayout(claimId: bigint | string, payoutTxHash: string): void {
+  if (!fs.existsSync(CLAIMS_LOG_PATH)) return;
+  const id = claimId.toString();
+  const updated = fs.readFileSync(CLAIMS_LOG_PATH, "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      let r: any;
+      try { r = JSON.parse(line); } catch { return line; }
+      if (r && r.claimId != null && String(r.claimId) === id) r.payoutTxHash = payoutTxHash;
+      return JSON.stringify(r);
+    });
+  fs.writeFileSync(CLAIMS_LOG_PATH, updated.join("\n") + "\n");
 }
 
 /**
@@ -150,6 +169,7 @@ export async function getClaimsHistory(claimant: string): Promise<HistoryEntry[]
       verifiedLossRaw: r.verifiedLossRaw,
       victimTxHash: r.victimTxHash,
       txHash: r.txHash,
+      ...(r.payoutTxHash ? { payoutTxHash: r.payoutTxHash } : {}),
       blockNumber,
     });
   }

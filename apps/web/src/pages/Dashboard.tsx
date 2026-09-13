@@ -4,7 +4,7 @@ import { api, shortAddr } from "../api";
 import { ConnectGate, fmtEther } from "./util";
 import { fetchWalletBook, addWallet, removeWallet, ADDR_RE, type WalletBook } from "../wallets";
 
-interface ClaimRow { id: string; kind: string; claimant: string; amountRaw: string; txHash?: string; verifiedLossRaw?: string }
+interface ClaimRow { id: string; kind: string; claimant: string; amountRaw: string; txHash?: string; payoutTxHash?: string; verifiedLossRaw?: string }
 
 export default function Dashboard() {
   const { address, isConnected } = useAccount();
@@ -166,7 +166,13 @@ export default function Dashboard() {
                 <td><div className="addr-cell">{shortAddr(c.claimant)}</div></td>
                 <td><span className={"badge " + (c.kind === "paid" ? "badge-paid" : "badge-eligible")}>{c.kind === "paid" ? "Paid" : "Eligible"}</span></td>
                 <td>{fmtEther(c.amountRaw)} ETH</td>
-                <td>{c.txHash ? <a className="row-action" target="_blank" rel="noreferrer" href={`https://sepolia.etherscan.io/tx/${c.txHash}`}>View</a> : "—"}</td>
+                <td>
+                  {(c.payoutTxHash || c.txHash) ? (
+                    <a className="row-action" target="_blank" rel="noreferrer" href={`https://sepolia.etherscan.io/tx/${c.payoutTxHash || c.txHash}`}>
+                      {c.payoutTxHash ? "Payout" : "Verify"}
+                    </a>
+                  ) : "—"}
+                </td>
               </tr>
             ))}
           </tbody>

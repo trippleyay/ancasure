@@ -32,3 +32,6 @@ data/sandwich-demo/
 data/ancasure.db
 data/demo/claims-log.jsonl
 data/demo/run-latest.json
+
+# local-only docs (README is the single pushed doc; others kept on disk)
+docs/*.md

@@ -222,6 +222,15 @@ User
 
 AncaSure was built for BUIDL CTC 2026 Fall and uses the Attestcoin Protocol as a core part of claim verification.
 
+## Links
+
+- **AncaSure:** https://ancasure.vercel.app/
+- **MEV creator:** https://ancasure.onrender.com/mev-demo
+- **Sepolia faucets:**
+  - https://cloud.google.com/application/web3/faucet/ethereum/sepolia
+  - https://sepolia-faucet.pk910.de/
+
+
 ## Future direction
 
 Possible directions include:

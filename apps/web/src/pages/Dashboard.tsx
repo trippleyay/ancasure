@@ -16,6 +16,7 @@ export default function Dashboard() {
   const [addError, setAddError] = useState("");
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState("");
+  const [showPromo, setShowPromo] = useState(true);
 
   // The wallet book lives on the server (connected wallet + ones added here).
   useEffect(() => {
@@ -171,6 +172,19 @@ export default function Dashboard() {
           </tbody>
         </table>
       </div>
+      {showPromo && (
+        <div className="promo-bar">
+          <span>
+            <strong>Try MEV Creator</strong> — simulate a live sandwich attack on Sepolia testnet.{" "}
+            <a href="https://ancasure.onrender.com/mev-demo" target="_blank" rel="noreferrer">
+              Open MEV Creator →
+            </a>
+          </span>
+          <button className="promo-dismiss" onClick={() => setShowPromo(false)} aria-label="Dismiss">
+            ✕
+          </button>
+        </div>
+      )}
     </ConnectGate>
   );
 }

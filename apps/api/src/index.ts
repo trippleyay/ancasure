@@ -103,9 +103,13 @@ function cors(res: http.ServerResponse): void {
 }
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
-  cors(res);
   const text = JSON.stringify(body, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2);
-  res.writeHead(status, { "content-type": "application/json" });
+  res.writeHead(status, {
+    "content-type": "application/json",
+    "access-control-allow-origin": "*",
+    "access-control-allow-headers": "content-type",
+    "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+  });
   res.end(text);
 }
 
@@ -141,7 +145,11 @@ const server = http.createServer(async (req, res) => {
   cors(res);
   // CORS preflight
   if (req.method === "OPTIONS") {
-    res.writeHead(204).end();
+    res.writeHead(204, {
+      "access-control-allow-origin": "*",
+      "access-control-allow-headers": "content-type",
+      "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+    }).end();
     return;
   }
   try {

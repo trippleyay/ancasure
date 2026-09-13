@@ -138,7 +138,6 @@ function ClaimedView({ claimed, onNewClaim }: { claimed: any; onNewClaim: () => 
       <h2>Payout approved</h2>
       <div className="evidence-rows" style={{ textAlign: "left", maxWidth: 460, margin: "20px auto 0" }}>
         <div className="evidence-row"><span className="lbl">Verified loss</span><span className="val">{fmtEther(claimed.verifiedLossRaw)} ETH</span></div>
-        <div className="evidence-row"><span className="lbl">Claim</span><span className="val">#{claimed.claimId}</span></div>
         {claimed.payoutSettled === false && <div className="evidence-row"><span className="lbl">Status</span><span className="val">Authorized — payout pending</span></div>}
         {claimed.payoutTxHash && <div className="evidence-row"><span className="lbl">Payout</span><span className="val"><a className="row-action" target="_blank" rel="noreferrer" href={`https://sepolia.etherscan.io/tx/${claimed.payoutTxHash}`}>{shortAddr(claimed.payoutTxHash)} ↗</a></span></div>}
       </div>

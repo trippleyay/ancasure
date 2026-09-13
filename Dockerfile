@@ -15,6 +15,7 @@ RUN npm install --omit=dev
 # Copy source
 COPY packages ./packages
 COPY apps/api ./apps/api
+COPY apps/mev-demo ./apps/mev-demo
 COPY demo ./demo
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
@@ -25,6 +26,7 @@ ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/packages ./packages
 COPY --from=build /app/apps/api ./apps/api
+COPY --from=build /app/apps/mev-demo ./apps/mev-demo
 COPY --from=build /app/demo ./demo
 
 EXPOSE 3000

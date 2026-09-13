@@ -16,6 +16,7 @@
     "@ancsure/detector": "*",
     "@ancsure/simulator": "*",
     "@ancsure/creditcoin": "*",
+    "@libsql/client": "^0.14.0",
     "ethers": "^6.17.0"
   },
   "devDependencies": {

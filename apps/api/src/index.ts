@@ -45,6 +45,7 @@ import {
   startMempoolSandwich,
 } from "../../../demo/sandwich/service.js";
 import { loadArtifacts } from "../../../demo/lib.js";
+import { initWalletStore } from "./services/walletStore.js";
 
 /** In-memory registry of mempool-watch attacks (per process; demo scope). */
 const mempoolWatches = new Map<string, Awaited<ReturnType<typeof startMempoolSandwich>>>();
@@ -283,7 +284,7 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, pathna
     // 1) detection
     const result = await detectForTxHash(rpcUrlFor(chain), hash);
     if (result.classification !== "SANDWICH") {
-      json(res, 422, { eligible: false, reason: ELIGIBILITY_HELP, detail: result.explanation ?? "not a sandwich" });
+      json(res, 422, { eligible: false, reason: ELIGIBILITY_HELP });
       return;
     }
     // 2) verified loss from the proven simulator, valued in ETH at the
@@ -298,7 +299,7 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, pathna
     const hashes = [result.frontRunTx!, hash, result.backRunTx!];
     const proof = await verifyEvidence(hashes, chain);
     if (proof.failures.length > 0) {
-      json(res, 502, { eligible: false, reason: "proof pipeline failures", failures: proof.failures });
+      json(res, 502, { eligible: false, reason: ELIGIBILITY_HELP });
       return;
     }
     // 4) authorized submission — loss value originates here, not from the client
@@ -337,7 +338,7 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, pathna
     const policies = [];
     for (const a of [...new Set(addrs)].slice(0, 25)) {
       try { policies.push(await getPolicy(a)); }
-      catch (e) { policies.push({ address: a, covered: false, capRaw: "0", expiresAt: 0, payer: "", error: (e as Error).message }); }
+      catch { policies.push({ address: a, covered: false, capRaw: "0", expiresAt: 0, payer: "" }); }
     }
     json(res, 200, { policies });
     return;
@@ -362,9 +363,9 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, pathna
     if (!ADDR_RE.test(owner)) throw new Error("owner must be a 0x.. address");
     if (!ADDR_RE.test(address)) throw new Error("address must be a 0x.. wallet address");
     if (address === owner) throw new Error("the connected wallet is already in your list");
-    if (walletStore.has(owner, address)) throw new Error("that wallet is already in your list");
-    if (walletStore.count(owner) >= MAX_ADDED_WALLETS) throw new Error(`wallet list is full (max ${MAX_ADDED_WALLETS})`);
-    walletStore.add(owner, address);
+    if (await walletStore.has(owner, address)) throw new Error("that wallet is already in your list");
+    if ((await walletStore.count(owner)) >= MAX_ADDED_WALLETS) throw new Error(`wallet list is full (max ${MAX_ADDED_WALLETS})`);
+    await walletStore.add(owner, address);
     json(res, 200, await walletBookResponse(owner));
     return;
   }
@@ -379,11 +380,11 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, pathna
     if (!ADDR_RE.test(owner)) throw new Error("owner must be a 0x.. address");
     if (!ADDR_RE.test(address)) throw new Error("address must be a 0x.. wallet address");
     if (address === owner) throw new Error("the connected wallet cannot be removed");
-    if (!walletStore.has(owner, address)) throw new Error("that wallet is not in your list");
+    if (!(await walletStore.has(owner, address))) throw new Error("that wallet is not in your list");
     let policy: Awaited<ReturnType<typeof getPolicy>> | null = null;
     try { policy = await getPolicy(address); } catch { /* RPC down — treat as unprotected */ }
     if (policy?.covered) throw new Error("that wallet has active protection and cannot be removed");
-    walletStore.remove(owner, address);
+    await walletStore.remove(owner, address);
     json(res, 200, await walletBookResponse(owner));
     return;
   }
@@ -395,7 +396,7 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, pathna
     const url = new URL(req.url!, `http://localhost:${PORT}`);
     const addr = url.searchParams.get("address") ?? "";
     if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) throw new Error("address query param required");
-    const claimants = [addr.toLowerCase(), ...walletStore.list(addr.toLowerCase()).map((r) => r.walletAddress)];
+    const claimants = [addr.toLowerCase(), ...(await walletStore.list(addr.toLowerCase())).map((r) => r.walletAddress)];
     const seen = new Set<string>();
     const claims = (await Promise.all(claimants.map((c) => getClaimsHistory(c).catch(() => []))))
       .flat()
@@ -426,14 +427,14 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, pathna
 
     const result = await detectForTxHash(rpcUrlFor(chain), hash);
     if (result.classification !== "SANDWICH") {
-      json(res, 200, { eligible: false, classification: result.classification, reason: ELIGIBILITY_HELP, detail: result.explanation ?? "not a sandwich" });
+      json(res, 200, { eligible: false, classification: result.classification, reason: ELIGIBILITY_HELP });
       return;
     }
     const report: any = await simulateAndSerialize(rpcUrlFor(chain), hash);
     const leg = report?.victims?.find((v: any) => v?.legs?.length > 0)?.legs?.[0];
     const lossRaw = verifiedLossEthWei(report) ?? 0n;
     if (lossRaw <= 0n) {
-      json(res, 200, { eligible: false, classification: "SANDWICH", reason: ELIGIBILITY_HELP, detail: "simulated loss is zero" });
+      json(res, 200, { eligible: false, classification: "SANDWICH", reason: ELIGIBILITY_HELP });
       return;
     }
     const hashes = [result.frontRunTx!, hash, result.backRunTx!];
@@ -443,8 +444,6 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, pathna
         eligible: false,
         classification: "SANDWICH",
         reason: ELIGIBILITY_HELP,
-        detail: "we couldn't verify this attack's evidence on Creditcoin — the transactions could not be proven, so no payout can be authorized",
-        failures: proof.failures,
       });
       return;
     }
@@ -516,6 +515,9 @@ async function route(req: http.IncomingMessage, res: http.ServerResponse, pathna
 }
 
 loadDotEnv(path.dirname(RUN_FILE));
-server.listen(PORT, () => {
-  console.log(`AncaSure API listening on :${PORT}`);
-});
+(async () => {
+  await initWalletStore();
+  server.listen(PORT, () => {
+    console.log(`AncaSure API listening on :${PORT}`);
+  });
+})();

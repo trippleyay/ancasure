@@ -3,6 +3,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { WalletStore } from "../src/services/walletStore.js";
+import { createSqliteDb } from "../src/services/db.js";
 import { buildWalletBook, type WalletBook } from "../src/services/walletBook.js";
 import type { PolicyInfo } from "../src/services/claims.js";
 
@@ -19,7 +20,7 @@ let store: WalletStore;
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "ancasure-wallets-"));
   dbPath = path.join(dir, "ancasure.db");
-  store = new WalletStore(dbPath);
+  store = WalletStore.forDb(createSqliteDb(dbPath));
 });
 
 afterAll(() => {
@@ -40,51 +41,51 @@ function fakeGetPolicy(covered: Partial<Record<string, Partial<PolicyInfo>>> = {
 }
 
 describe("WalletStore (SQLite)", () => {
-  it("adds a wallet for an owner", () => {
-    expect(store.add(O1, W1)).toBe(true);
-    const rows = store.list(O1);
+  it("adds a wallet for an owner", async () => {
+    expect(await store.add(O1, W1)).toBe(true);
+    const rows = await store.list(O1);
     expect(rows).toHaveLength(1);
     expect(rows[0].ownerAddress).toBe(O1);
     expect(rows[0].walletAddress).toBe(W1);
     expect(new Date(rows[0].createdAt).getTime()).not.toBeNaN();
   });
 
-  it("rejects duplicate (owner, wallet) pairs — unique constraint", () => {
-    expect(store.add(O1, W1)).toBe(true);
-    expect(store.add(O1, W1)).toBe(false);
-    expect(store.list(O1)).toHaveLength(1);
+  it("rejects duplicate (owner, wallet) pairs — unique constraint", async () => {
+    expect(await store.add(O1, W1)).toBe(true);
+    expect(await store.add(O1, W1)).toBe(false);
+    expect((await store.list(O1))).toHaveLength(1);
   });
 
-  it("stores multiple wallets under one owner, isolated per owner", () => {
-    store.add(O1, W1);
-    store.add(O1, W2);
-    store.add(O1, W3);
-    expect(store.count(O1)).toBe(3);
+  it("stores multiple wallets under one owner, isolated per owner", async () => {
+    await store.add(O1, W1);
+    await store.add(O1, W2);
+    await store.add(O1, W3);
+    expect(await store.count(O1)).toBe(3);
     // same wallet under a different owner is a different row
-    store.add(O2, W1);
-    expect(store.count(O2)).toBe(1);
-    expect(store.list(O2).map((r) => r.walletAddress)).toEqual([W1]);
+    await store.add(O2, W1);
+    expect(await store.count(O2)).toBe(1);
+    expect((await store.list(O2)).map((r) => r.walletAddress)).toEqual([W1]);
     // owners never leak into each other
-    expect(store.list(O1).every((r) => r.ownerAddress === O1)).toBe(true);
+    expect((await store.list(O1)).every((r) => r.ownerAddress === O1)).toBe(true);
   });
 
-  it("persists across an API restart (close + reopen same DATABASE_PATH)", () => {
-    store.add(O1, W1);
-    store.add(O1, W2);
+  it("persists across an API restart (close + reopen same DATABASE_PATH)", async () => {
+    await store.add(O1, W1);
+    await store.add(O1, W2);
     store.close();
-    const reopened = new WalletStore(dbPath); // simulates process restart
-    expect(reopened.list(O1).map((r) => r.walletAddress)).toEqual([W1, W2]);
+    const reopened = WalletStore.forDb(createSqliteDb(dbPath)); // simulates process restart
+    expect((await reopened.list(O1)).map((r) => r.walletAddress)).toEqual([W1, W2]);
     // and dedupe still holds after restart
-    expect(reopened.add(O1, W1)).toBe(false);
+    expect(await reopened.add(O1, W1)).toBe(false);
     reopened.close();
   });
 
-  it("removes only the requested row", () => {
-    store.add(O1, W1);
-    store.add(O1, W2);
-    expect(store.remove(O1, W1)).toBe(true);
-    expect(store.remove(O1, W1)).toBe(false); // already gone
-    expect(store.list(O1).map((r) => r.walletAddress)).toEqual([W2]);
+  it("removes only the requested row", async () => {
+    await store.add(O1, W1);
+    await store.add(O1, W2);
+    expect(await store.remove(O1, W1)).toBe(true);
+    expect(await store.remove(O1, W1)).toBe(false); // already gone
+    expect((await store.list(O1)).map((r) => r.walletAddress)).toEqual([W2]);
   });
 });
 

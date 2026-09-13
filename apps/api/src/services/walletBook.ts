@@ -31,7 +31,7 @@ export async function buildWalletBook(
   getPolicyFn: (addr: string) => Promise<PolicyInfo> = getPolicy,
   store: WalletStore = walletStore,
 ): Promise<WalletBook> {
-  const rows = store.list(ownerLc).filter((r) => ADDR_RE.test(r.walletAddress));
+  const rows = (await store.list(ownerLc)).filter((r) => ADDR_RE.test(r.walletAddress));
   const wallets: WalletBookEntry[] = [];
 
   for (const a of [...new Set([ownerLc, ...rows.map((r) => r.walletAddress)])].slice(0, 25)) {
